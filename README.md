@@ -29,6 +29,9 @@ Add `?debug` to the URL for an FPS / draw-call readout.
 - **Crises** pop up as timed cards at the bottom (terror plots, hostages, missile launches, piracy, cyber
   attacks, invasions of allies, disasters, rival fleet incursions). Click one to jump straight to the
   recommended operation. Resolve them fast for bonus points.
+- **Command dilemmas** interrupt every few days: a rival submarine shadowing your carrier, leaked strike
+  footage, a defector, a coup in an allied capital, a summit invitation. Every choice trades approval,
+  tension, budget, intel or alliances.
 - **Intel matters.** Enemy sites and terror cells are hidden until satellites, drones or cyber recon find
   them. Better intel means more accurate strikes and less collateral damage.
 - **The escalation ladder:** Recon & Aid → Patrol & Cyber blinding → Strikes, Raids, Blockades, Grid
