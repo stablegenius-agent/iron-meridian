@@ -658,7 +658,11 @@ export class UI {
     const row = $('modal-body').querySelector('.row');
     row.style.flexDirection = 'column';
     row.style.alignItems = 'stretch';
-    row.querySelectorAll('button').forEach(b => { b.style.textAlign = 'left'; b.style.padding = '10px 14px'; });
+    row.querySelectorAll('button').forEach((b, i) => {
+      b.style.textAlign = 'left'; b.style.padding = '10px 14px';
+      const cost = -(d.options[i].fx.budget || 0);
+      if (!this.g.sandbox && cost > 0 && this.g.budget < cost) { b.disabled = true; b.title = 'Insufficient budget'; }
+    });
   }
 
   procureMenu() {
