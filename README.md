@@ -56,6 +56,7 @@ constellations and an orbital kinetic strike platform — staged from real US ba
 | Key | Action |
 |---|---|
 | Mouse drag / wheel | Orbit / zoom the globe; double-click to zoom to a point |
+| `Enter` | Run the planned operation (the blue action button) |
 | `Space` | Pause / resume |
 | `1` `2` `3` | Normal / fast / fastest speed |
 | Click a unit on the globe | Select it, then click a country to task it |
@@ -67,6 +68,12 @@ constellations and an orbital kinetic strike platform — staged from real US ba
 | `H` | Field manual |
 | `M` / `V` | Mute all audio / toggle voice callouts |
 | `Esc` | Close panel / deselect / menu |
+
+## Interface design
+
+The HUD follows Apple's Human Interface Guidelines: floating glass controls over the globe, one prominent
+action button per view, segmented controls, inset grouped lists and Cancel-first confirmation sheets. The
+study behind it is in [`docs/design-study.md`](docs/design-study.md).
 
 ## Under the hood
 

@@ -1,15 +1,33 @@
-// DOM interface: HUD, forces roster, dossier/operation planner, crises, comms, labels, modals.
+// DOM interface: HUD, forces roster, dossier/operation planner, crises, comms, labels, sheets.
+// Visual language follows Apple's HIG (docs/design-study.md): glass controls over the globe, one prominent
+// button per view (the action bar's verb), segmented controls, inset grouped lists, Cancel-leading sheets.
 import * as THREE from 'three';
 import { CLASSES, CRISES, MEDALS, OPS, PROCURE, SITE_TYPES, STANCE_STYLE, UNIT_TYPES } from './data.js';
 import { GLOBE_R, distanceKm, llToVec3 } from './geo.js';
 import { availableOps, eligibleUnits, estimate } from './ops.js';
+import { icon } from './icons.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
 const fmtPop = (n) => n >= 1e9 ? (n / 1e9).toFixed(1) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'K' : String(n);
 const fmtGdp = (m) => m >= 1e6 ? '$' + (m / 1e6).toFixed(1) + 'T' : m >= 1e3 ? '$' + Math.round(m / 1e3) + 'B' : '$' + m + 'M';
 const hrs = (h) => h >= 48 ? `${Math.round(h / 24)}d` : `${Math.max(0, Math.ceil(h))}h`;
-const OP_ICON = { recon: '◎', aid: '✚', patrol: '⛨', cyber_ad: '⌁', strike: '✛', raid: '✠', cyber_grid: '⚡', blockade: '⚓', campaign: '✈', invade: '▲' };
+// Game code speaks in ALL CAPS; the interface uses title/sentence case (HIG) but keeps acronyms.
+const KEEP = new Set(['DEFCON', 'US', 'USA', 'SAM', 'SAMS', 'ICBM', 'HQ', 'UN', 'ETA', 'RTB', 'SOF', 'B-2', 'F-35', 'MQ-9', 'II', 'III']);
+const SMALL = new Set(['a', 'an', 'the', 'of', 'to', 'in', 'on', 'at', 'for', 'and', 'or', 'by']);
+export const nice = (s) => {
+  s = String(s);
+  if (s !== s.toUpperCase() || !/[A-Z]{2}/.test(s)) return s;
+  return s.split(/(\s+)/).map((w, i) => KEEP.has(w.replace(/[^A-Z0-9-]/g, '')) ? w :
+    (i > 0 && SMALL.has(w.toLowerCase())) ? w.toLowerCase() : w.charAt(0) + w.slice(1).toLowerCase()).join('');
+};
+const sentence = (s) => { s = String(s); return s === s.toUpperCase() ? s.charAt(0) + s.slice(1).toLowerCase().replace(/\bdefcon\b/g, 'DEFCON').replace(/\bh\b/, 'h') : s; };
+const stanceLabel = (st) => nice(STANCE_STYLE[st].label);
+// The prominent button names the result (HIG: "consider starting the label with a verb").
+const VERB = { recon: 'Begin Recon', aid: 'Deploy Aid', patrol: 'Start Patrol', cyber_ad: 'Blind Air Defenses', strike: 'Launch Strike',
+  raid: 'Launch Raid', cyber_grid: 'Black Out Grid', blockade: 'Begin Blockade', campaign: 'Launch Air Campaign', invade: 'Begin Invasion' };
+const GROUPS = [['Intelligence & Support', (e) => e <= 0], ['Limited Force', (e) => e > 0 && e <= 2], ['Major Operations', (e) => e > 2]];
+const tileCls = (e) => ({ '-1': 'e0', 0: 'e1', 1: 'e1', 2: 'e2', 3: 'e3', 4: 'e4' })[e] || 'e2';
 
 export class UI {
   constructor(game) {
@@ -23,8 +41,12 @@ export class UI {
     this.labelsEl = $('labels');
     this.modalOpen = false;
     this._acc = 0;
-    this._feedItems = [];
     this.v = new THREE.Vector3();
+    // static markup carries <i data-icon="name"> placeholders
+    document.querySelectorAll('i[data-icon]').forEach(el => {
+      const small = el.closest('.speeds, .mode, .btn.small');
+      el.outerHTML = icon(el.dataset.icon, small ? 15 : 19);
+    });
     this._bindHud();
   }
 
@@ -40,7 +62,7 @@ export class UI {
     if (save) {
       const btn = $('btn-continue');
       btn.classList.remove('hidden');
-      btn.textContent = `Continue campaign · Day ${Math.floor(save.time / 24) + 1}`;
+      btn.textContent = `Continue Campaign · Day ${Math.floor(save.time / 24) + 1}`;
       btn.addEventListener('click', () => { g.audio.init(); this._applyQuality(); g.start(save.mode, save.difficulty, save.seed, save); });
     }
     $('opt-quality').addEventListener('change', () => this._applyQuality());
@@ -85,7 +107,10 @@ export class UI {
 
   setSpeed(s) {
     this.g.speed = s;
-    document.querySelectorAll('.speeds button').forEach(b => b.classList.toggle('on', parseFloat(b.dataset.speed) === s));
+    document.querySelectorAll('.speeds button').forEach(b => {
+      const on = parseFloat(b.dataset.speed) === s;
+      b.classList.toggle('on', on); b.setAttribute('aria-checked', on);
+    });
     this.g.audio.click();
   }
 
@@ -114,23 +139,25 @@ export class UI {
     const g = this.g;
     if (!g.started) return;
     const h = g.time % 24;
-    $('date').textContent = `DAY ${g.day} · ${String(Math.floor(h)).padStart(2, '0')}:${String(Math.floor((h % 1) * 60)).padStart(2, '0')}Z`;
+    $('date').textContent = `Day ${g.day} · ${String(Math.floor(h)).padStart(2, '0')}:${String(Math.floor((h % 1) * 60)).padStart(2, '0')}Z`;
     const dc = 5 - Math.min(4, Math.floor(g.tension / 20));
     const d = document.querySelector('.defcon');
     d.className = `defcon d${dc}`;
     d.querySelectorAll('i').forEach((el, i) => el.classList.toggle('on', i >= dc - 1));
+    $('defcon-num').textContent = dc;
     $('tension-bar').style.width = `${g.tension}%`;
     $('tension-val').textContent = Math.round(g.tension);
     $('approval-bar').style.width = `${g.approval}%`;
     $('approval-val').textContent = Math.round(g.approval);
     $('budget-val').textContent = g.sandbox ? '∞' : `$${g.budget.toFixed(1)}B`;
-    $('score-val').textContent = Math.round(g.score);
+    $('score-val').textContent = Math.round(g.score).toLocaleString();
   }
 
   // ====================================================================== forces
   _renderTabs() {
-    const tabs = [['all', 'ALL'], ...Object.entries(CLASSES).map(([k, v]) => [k, `${v.icon} ${v.label}`])];
-    $('force-tabs').innerHTML = tabs.map(([k, l]) => `<button data-tab="${k}" class="${k === this.forceTab ? 'on' : ''}">${l}</button>`).join('');
+    // HIG: segmented controls use text or images, not both; nouns for labels.
+    const tabs = [['all', 'All'], ...Object.entries(CLASSES).map(([k, v]) => [k, nice(v.label)])];
+    $('force-tabs').innerHTML = tabs.map(([k, l]) => `<button role="radio" aria-checked="${k === this.forceTab}" data-tab="${k}" class="${k === this.forceTab ? 'on' : ''}">${l}</button>`).join('');
     $('force-tabs').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
       this.forceTab = b.dataset.tab; this._renderTabs(); this.renderForces(); this.g.audio.click();
     }));
@@ -141,17 +168,17 @@ export class UI {
     if (!g.started) return;
     const list = g.units.filter(u => this.forceTab === 'all' || u.cls === this.forceTab);
     const ready = g.units.filter(u => u.available).length;
-    $('forces-count').textContent = `${ready}/${g.units.length} READY`;
+    $('forces-count').textContent = `${ready} of ${g.units.length} ready`;
     const html = list.map(u => {
       const st = u.state === 'lost' ? 'down' : u.state === 'ready' || (u.cls === 'naval' && u.state === 'onstation') ? 'ready' : 'busy';
       const where = u.task ? `${OPS[u.task.op]?.name || ''} · ${g.world.countries[u.task.ci]?.name || ''}` :
         u.cls === 'naval' ? (u.stationCi >= 0 ? `Off ${g.world.countries[u.stationCi].name}` : 'Patrolling') : u.base.name;
       const canRecall = (u.state === 'onstation' || u.state === 'moving') && (u.cls !== 'space' && u.cls !== 'cyber');
       return `<div class="unit ${this.selUnit === u ? 'sel' : ''}" data-unit="${u.id}">
-        <div class="ic">${u.t.icon}</div>
-        <div><div class="nm">${esc(u.callsign)} <span class="sub">${u.t.short}</span></div><div class="sub">${esc(where)}</div></div>
-        <div style="text-align:right"><span class="st ${st}">${u.statusText()}</span>${canRecall ? `<div><button data-recall="1" style="font-size:10px;padding:0 5px;margin-top:3px">RECALL</button></div>` : ''}</div>
-        <div class="hp"><b style="width:${Math.max(0, u.hp)}%"></b></div>
+        <div class="tile">${icon(u.type, 19)}</div>
+        <div style="min-width:0"><div class="nm">${esc(u.callsign)}<small>${u.t.short}</small></div><div class="sub">${esc(where)}</div></div>
+        <div class="right"><span class="pill ${st}">${sentence(u.statusText())}</span>${canRecall ? `<button class="btn gray small" data-recall="1" style="height:24px;padding:0 9px;font-size:11.5px">${icon('recall', 13)}Recall</button>` : ''}</div>
+        <div class="hp ${u.hp >= 99.5 ? 'full' : ''}"><b style="width:${Math.max(0, u.hp)}%"></b></div>
       </div>`;
     }).join('');
     if (html !== this._lastForces) { $('force-list').innerHTML = html; this._lastForces = html; }
@@ -163,7 +190,7 @@ export class UI {
     g.audio.select();
     if (this.selUnit) {
       if (u.cls !== 'cyber') g.focusLL(u.ll, Math.max(1.6, Math.min(2.6, g.camera.position.length())));
-      this.showHint(`${u.t.name} ${u.callsign} selected — click any country to task it`);
+      this.showHint(`${u.callsign} selected · click any country to task it`);
       if (this.dossier) this.openDossier(this.dossier.c);
     } else this.showHint('');
     this.dirtyForces = true;
@@ -180,6 +207,7 @@ export class UI {
     }
     this.g.globe.setSelected(c.i);
     $('dossier').classList.remove('hidden');
+    $('hud').classList.add('dz-open');
     this.renderDossier();
     this.refreshSites();
     this.refreshLabels();
@@ -189,80 +217,92 @@ export class UI {
     this.dossier = null;
     this.g.setPreview(null);
     $('dossier').classList.add('hidden');
+    $('hud').classList.remove('dz-open');
+    $('action-bar').innerHTML = '';
     this.g.globe.setSelected(-1);
     this.refreshSites();
   }
 
   _meter(label, v, cls = '') {
-    return `<div class="meter ${cls}"><label><span>${label}</span><span>${Math.round(v)}</span></label><div class="bar"><b style="width:${Math.max(0, Math.min(100, v))}%"></b></div></div>`;
+    return `<div class="meter ${cls}"><label><span>${label}</span><span>${Math.round(v)}</span></label><div class="meter-line"><b style="width:${Math.max(0, Math.min(100, v))}%"></b></div></div>`;
   }
 
   renderDossier() {
     const g = this.g, d = this.dossier;
     if (!d) return;
     const c = d.c;
-    const st = STANCE_STYLE[c.stance];
+    const body = $('dossier-body');
+    const keepScroll = body.scrollTop;
     const sites = g.world.sitesOf(c);
     const visible = sites.filter(s => g.world.visible(s));
     const hiddenN = sites.filter(s => s.alive && !g.world.visible(s)).length;
     const crises = g.crises.filter(cr => cr.ci === c.i);
     const flags = [];
-    if (c.blockaded) flags.push('BLOCKADED');
-    if (c.adDownUntil > g.time) flags.push(`AIR DEF. BLIND ${hrs(c.adDownUntil - g.time)}`);
-    if (c.gridDownUntil > g.time) flags.push(`GRID DOWN ${hrs(c.gridDownUntil - g.time)}`);
+    if (c.blockaded) flags.push('Blockaded');
+    if (c.adDownUntil > g.time) flags.push(`Air defense blind · ${hrs(c.adDownUntil - g.time)}`);
+    if (c.gridDownUntil > g.time) flags.push(`Grid down · ${hrs(c.gridDownUntil - g.time)}`);
     const present = g.units.filter(u => u.state === 'onstation' && (u.task?.ci === c.i || u.stationCi === c.i));
 
-    let html = `<div class="dz-head"><h3>${esc(c.name)}</h3><span class="tag ${c.stance}">${st.label}</span></div>
-      <div class="dz-meta">${esc(c.region || c.continent || '')} · pop ${fmtPop(c.pop)} · GDP ${fmtGdp(c.gdp)}${flags.length ? ` · <span class="warn">${flags.join(' · ')}</span>` : ''}</div>`;
-    if (c.stance !== 'home') {
-      html += `<div class="meters" id="dz-meters">${this._meters(c)}</div>`;
-    }
-    for (const cr of crises) html += `<div class="warn" style="margin:4px 0">⚠ ${esc(cr.title)} — ${hrs(cr.end - g.time)} left. ${esc(CRISES[cr.type].hint)}</div>`;
+    let html = `<div class="dz-top"><div class="dz-head"><h3>${esc(c.name)}</h3><span class="tag ${c.stance}">${stanceLabel(c.stance)}</span></div>
+      <div class="dz-meta">${esc(c.region || c.continent || '')} · Population ${fmtPop(c.pop)} · GDP ${fmtGdp(c.gdp)}</div></div>`;
+    if (flags.length) html += `<div class="flags">${flags.map(f => `<span class="pill">${f}</span>`).join('')}</div>`;
+    if (c.stance !== 'home') html += `<div class="meters" id="dz-meters">${this._meters(c)}</div>`;
+    for (const cr of crises) html += `<div class="callout">${icon('warning', 17)}<div><b>${esc(cr.title)}</b> · ${hrs(cr.end - g.time)} left<br>${esc(CRISES[cr.type].hint)}</div></div>`;
 
     if (sites.length || c.stance !== 'home') {
-      html += `<div class="sect">TARGETS ${hiddenN ? `<span class="note">· ${hiddenN} unconfirmed signature${hiddenN > 1 ? 's' : ''} — raise intel</span>` : ''}</div><div class="sites">`;
-      if (!visible.length) html += `<div class="note">No confirmed targets. ${c.intel < 50 ? 'Run Recon to find them.' : ''}</div>`;
-      for (const s of visible) {
-        html += `<div class="site ${d.site === s ? 'on' : ''}" data-site="${s.id}"><span>${s.faction ? '☠' : '◉'}</span><span>${esc(s.name)}</span>
-          <div class="hp"><b style="width:${s.hp / s.maxHp * 100}%"></b></div></div>`;
-      }
-      html += `</div>`;
+      html += `<div class="sect">Targets ${hiddenN ? `<span class="note">${hiddenN} unconfirmed · raise intel</span>` : ''}</div>`;
+      if (!visible.length) html += `<div class="list"><div class="li note">No confirmed targets.${c.intel < 50 ? ' Run Recon to find them.' : ''}</div></div>`;
+      else html += `<div class="list">` + visible.map(s => `<div class="li site-row ${d.site === s ? 'on' : ''} ${s.alive ? '' : 'dead'}" data-site="${s.id}">
+          <span class="ic-site">${icon(s.faction ? 'cell' : 'site', 17)}</span><span class="grow">${esc(s.name)}</span>
+          <div class="hpbar"><b style="width:${s.hp / s.maxHp * 100}%"></b></div></div>`).join('') + `</div>`;
     }
     if (present.length) {
-      html += `<div class="sect">US FORCES PRESENT</div>`;
-      html += present.map(u => `<div class="site" data-unit="${u.id}"><span>${u.t.icon}</span><span>${esc(u.callsign)} · ${esc(OPS[u.task?.op]?.name || 'Station')}</span><button data-recall="${u.id}" style="margin-left:auto;font-size:10px;padding:0 6px">RECALL</button></div>`).join('');
+      html += `<div class="sect">US Forces Present</div><div class="list">` + present.map(u => `<div class="li" data-unit="${u.id}">
+        <div class="tile sm">${icon(u.type, 16)}</div><span class="grow"><span class="t">${esc(u.callsign)}</span><span class="d">${esc(OPS[u.task?.op]?.name || 'On station')}</span></span>
+        <button class="btn gray small" data-recall="${u.id}">${icon('recall', 14)}Recall</button></div>`).join('') + `</div>`;
     }
 
+    // Operations: an inset grouped list ordered by escalation; selection shows a checkmark.
     const ops = availableOps(g, c).filter(k => !this.selUnit || OPS[k].uses.includes(this.selUnit.type));
-    html += `<div class="sect">OPERATIONS ${this.selUnit ? `<span class="note">· for ${esc(this.selUnit.callsign)} <a href="#" id="clear-unit" style="color:var(--cyan)">(all forces)</a></span>` : ''}</div><div class="ops">`;
-    for (const k of ops) {
-      const op = OPS[k];
-      html += `<button class="op esc${Math.max(0, op.esc)} ${d.op === k ? 'on' : ''}" data-op="${k}"><b>${OP_ICON[k] || ''} ${op.name}</b><span>${op.desc}</span></button>`;
+    html += `<div class="sect">Operations ${this.selUnit ? `<span class="note">for ${esc(this.selUnit.callsign)} · <a href="#" id="clear-unit">Show all forces</a></span>` : ''}</div><div class="list ops-list">`;
+    const canTalk = (c.stance === 'hostile' || c.stance === 'rival') && !this.selUnit;
+    for (const [gname, test] of GROUPS) {
+      const ks = ops.filter(k => test(OPS[k].esc));
+      if (!ks.length && !(canTalk && gname === GROUPS[0][0])) continue;
+      html += `<div class="group-label">${gname}</div>`;
+      for (const k of ks) {
+        const op = OPS[k];
+        html += `<button class="li ${d.op === k ? 'on' : ''}" data-op="${k}"><div class="tile sm ${tileCls(op.esc)}">${icon(k, 16)}</div>
+          <span class="grow"><span class="t">${op.name}</span><span class="d">${op.desc}</span></span><span class="chk">${icon('check', 18)}</span></button>`;
+      }
+      if (canTalk && gname === GROUPS[0][0]) {
+        const wait = Math.max(0, (g.talksReadyAt || 0) - g.time);
+        html += `<button class="li op-talks" data-talks="1" ${wait ? 'disabled' : ''}><div class="tile sm">${icon('talks', 16)}</div>
+          <span class="grow"><span class="t">Back-Channel Talks</span><span class="d">${wait ? `Diplomats busy · ${Math.ceil(wait)}h` : `Tension −${c.stance === 'rival' ? 14 : 8} · approval −2 · ${g.sandbox ? 'free' : '$6B'} · 36h cooldown`}</span></span></button>`;
+      }
     }
-    if ((c.stance === 'hostile' || c.stance === 'rival') && !this.selUnit) {
-      const wait = Math.max(0, (g.talksReadyAt || 0) - g.time);
-      html += `<button class="op" data-talks="1" style="grid-column:1/3;border-left-color:var(--green)" ${wait ? 'disabled' : ''}><b>☮ Back-Channel Talks</b><span>${wait ? `Diplomats busy · ${Math.ceil(wait)}h` : `Tension −${c.stance === 'rival' ? 14 : 8} · −2 approval · ${g.sandbox ? 'free' : '$6B'} · 36h cooldown`}</span></button>`;
-    }
-    if (c.stance !== 'home' && c.stance !== 'controlled' && !this.selUnit) html += `<button class="op warop" data-war="1"><b>☢ DECLARE WAR</b><span>Commit every available asset: cyber, air campaign, blockade, invasion.</span></button>`;
     html += `</div>`;
+    if (c.stance !== 'home' && c.stance !== 'controlled' && !this.selUnit) {
+      html += `<div class="war-zone"><button class="btn destructive block" data-war="1">${icon('war', 17)}Declare War…</button></div>`;
+    }
     this._preview = null;
-    if (d.op) html += this._planHtml();
-    $('dossier-body').innerHTML = html;
+    const plan = d.op ? this._plan() : null;
+    if (plan) html += plan.body;
+    body.innerHTML = html;
+    $('action-bar').innerHTML = plan ? plan.bar : '';
     this._bindDossier();
     g.setPreview(this._preview?.[0], this._preview?.[1]);
-    // Bring the plan (and its EXECUTE button) into view when an operation was just chosen.
     if (d.op && this._lastOp !== d.op) {
-      const plan = $('dossier-body').querySelector('.plan');
-      if (plan) plan.scrollIntoView({ block: 'end', behavior: 'smooth' });
-    }
+      const p = body.querySelector('#plan-assets') || body.querySelector('.ops-list .li.on');
+      if (p) p.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    } else body.scrollTop = keepScroll;
     this._lastOp = d.op;
   }
 
   _meters(c) {
-    const g = this.g;
-    let h = this._meter('MILITARY', c.mil) + this._meter('AIR DEFENSE', c.ad) + this._meter('AIR FORCE', c.air) +
-      (c.coastal ? this._meter('NAVY', c.navy) : this._meter('MISSILES', c.missiles * 10)) + this._meter('INTEL', c.intel, 'intel') + this._meter('STABILITY', c.stability, 'intel');
-    if (c.control > 0 && c.stance !== 'controlled') h += this._meter('US CONTROL', c.control, 'intel');
+    let h = this._meter('Military', c.mil) + this._meter('Air defense', c.ad) + this._meter('Air force', c.air) +
+      (c.coastal ? this._meter('Navy', c.navy) : this._meter('Missiles', c.missiles * 10)) + this._meter('Intel', c.intel, 'intel') + this._meter('Stability', c.stability, 'intel');
+    if (c.control > 0 && c.stance !== 'controlled') h += this._meter('US control', c.control, 'intel');
     return h;
   }
 
@@ -272,51 +312,53 @@ export class UI {
     // keep site health bars live without rebuilding the panel
     if (this.dossier) for (const el of $('dossier-body').querySelectorAll('[data-site]')) {
       const s = this.g.world.sites.find(x => x.id === +el.dataset.site);
-      const b = el.querySelector('.hp b');
+      const b = el.querySelector('.hpbar b');
       if (s && b) b.style.width = `${s.hp / s.maxHp * 100}%`;
       if (s && !s.alive) el.classList.add('dead');
     }
   }
 
-  _planHtml() {
+  /** Asset picker (in the scrolling body) + the pinned action bar with odds and the one prominent button. */
+  _plan() {
     const g = this.g, d = this.dossier, c = d.c, op = OPS[d.op];
-    let h = `<div class="plan"><b>${op.name.toUpperCase()}</b> <span class="note">${op.desc}</span>`;
-    if (op.target === 'site' && !d.site) {
-      return h + `<div class="warn" style="margin-top:6px">Select a target above.</div></div>`;
-    }
+    const bar = (inner, verb = VERB[d.op], enabled = false) => `<div class="ab-title"><span class="tile sm ${tileCls(op.esc)}">${icon(d.op, 15)}</span><b>${op.name}</b>${d.site ? `<span>· ${esc(d.site.name)}</span>` : ''}</div>
+      ${inner}<button class="btn prominent large block" id="go" ${enabled ? '' : 'disabled'}>${verb}</button>`;
+    if (op.target === 'site' && !d.site) return { body: '', bar: bar(`<div class="ab-notes"><div class="warn">Choose a target in the list above.</div></div>`) };
     const elig = eligibleUnits(g, d.op, c, d.site);
-    if (!elig.length) return h + `<div class="warn" style="margin-top:6px">No assets can perform this operation${d.site ? ' on this target' : ''}.</div></div>`;
+    if (!elig.length) return { body: '', bar: bar(`<div class="ab-notes"><div class="warn">No assets can perform this operation${d.site ? ' on this target' : ''}.</div></div>`) };
     if (!d.picked) {
       d.picked = new Set();
       const ready = elig.filter(e => e.ready);
       if (this.selUnit && ready.some(e => e.u === this.selUnit)) d.picked.add(this.selUnit.id);
       else {
-        const n = { campaign: 3, invade: 2, strike: 1, patrol: 1, blockade: 1, recon: 1, raid: 1, aid: 1 }[d.op] ?? 1;
-        // strikes: prefer the hardest hitter among the quickest few
+        const n = { campaign: 3, invade: 2 }[d.op] ?? 1;
         let pool = ready;
+        // strikes: prefer the hardest hitter among the quickest few; recon: the best sensor
         if (d.op === 'strike') pool = [...ready].sort((a, b) => (b.u.t.strike || b.u.t.cyber || 0) / (1 + b.eta / 12) - (a.u.t.strike || a.u.t.cyber || 0) / (1 + a.eta / 12));
         if (d.op === 'recon') pool = [...ready].sort((a, b) => (b.u.t.recon || 15) / (1 + b.eta / 6) - (a.u.t.recon || 15) / (1 + a.eta / 6));
         pool.slice(0, n).forEach(e => d.picked.add(e.u.id));
       }
     }
-    h += `<div class="assets">` + elig.map(e => `<label class="asset-row" style="${e.ready ? '' : 'opacity:.45'}">
-        <input type="checkbox" data-pick="${e.u.id}" ${d.picked.has(e.u.id) ? 'checked' : ''} ${e.ready ? '' : 'disabled'}>
-        <span>${e.u.t.icon} ${esc(e.u.callsign)} <span class="note">${e.u.t.short}</span></span>
-        <span class="eta">${e.ready ? 'ETA ' + hrs(e.eta) : e.why}</span></label>`).join('') + `</div>`;
-    const units = elig.filter(e => d.picked.has(e.u.id) && e.ready).map(e => e.u);
+    const picked = elig.filter(e => d.picked.has(e.u.id) && e.ready);
+    const units = picked.map(e => e.u);
+    const body = `<div class="sect" id="plan-assets">Assets <span class="note">${units.length} selected</span></div><div class="list assets">` +
+      elig.map(e => `<button class="li ${d.picked.has(e.u.id) && e.ready ? 'picked' : ''} ${e.ready ? '' : 'na'}" data-pick="${e.u.id}" ${e.ready ? '' : 'aria-disabled="true"'}>
+        <span class="radio">${icon('check', 13)}</span><div class="tile sm">${icon(e.u.type, 16)}</div>
+        <span class="grow"><span class="t">${esc(e.u.callsign)}</span><span class="d">${e.u.t.name}</span></span>
+        <span class="eta">${e.ready ? 'ETA ' + hrs(e.eta) : esc(sentence(e.why))}</span></button>`).join('') + `</div>`;
     this._preview = [units, d.site ? d.site.ll : c.ll];
     const est = estimate(g, d.op, c, d.site, units);
-    const col = (v, good) => v === 'MIN' || v === 'LOW' ? 'var(--green)' : v === 'MED' ? 'var(--amber)' : 'var(--red)';
-    h += `<div class="odds">
-      <div><label>SUCCESS</label><b style="color:${est.successPct > 70 ? 'var(--green)' : est.successPct > 40 ? 'var(--amber)' : 'var(--red)'}">${units.length ? est.successPct + '%' : '—'}</b></div>
-      <div><label>LOSS RISK</label><b style="color:${est.lossPct < 15 ? 'var(--green)' : est.lossPct < 35 ? 'var(--amber)' : 'var(--red)'}">${est.lossPct}%</b></div>
-      <div><label>COLLATERAL</label><b style="color:${col(est.collLabel)}">${est.collLabel}</b></div>
-      <div><label>TENSION</label><b style="color:${est.tension > 8 ? 'var(--red)' : est.tension > 0 ? 'var(--amber)' : 'var(--green)'}">${est.tension > 0 ? '+' : ''}${est.tension}</b></div>
-    </div>`;
-    for (const n of est.notes) h += `<div class="warn">${esc(n)}</div>`;
-    h += `<div class="note" style="margin:4px 0 8px">Cost: ${g.sandbox ? 'unrestricted' : '$' + est.cost.toFixed(1) + 'B'} · Escort fighters and Cyber: Blind Air Defense first to cut losses.</div>`;
-    h += `<button class="go" id="go" ${units.length ? '' : 'disabled'}>EXECUTE</button></div>`;
-    return h;
+    const lvl = (v) => v === 'MIN' || v === 'LOW' ? 'var(--green)' : v === 'MED' ? 'var(--orange)' : 'var(--red)';
+    const eta = units.length ? Math.max(...picked.map(e => e.eta)) : 0;
+    const inner = `<div class="odds">
+      <div><label>Success</label><b style="color:${est.successPct > 70 ? 'var(--green)' : est.successPct > 40 ? 'var(--orange)' : 'var(--red)'}">${units.length ? est.successPct + '%' : '—'}</b></div>
+      <div><label>Loss risk</label><b style="color:${est.lossPct < 15 ? 'var(--green)' : est.lossPct < 35 ? 'var(--orange)' : 'var(--red)'}">${est.lossPct}%</b></div>
+      <div><label>Collateral</label><b style="color:${lvl(est.collLabel)}">${nice(est.collLabel)}</b></div>
+      <div><label>Tension</label><b style="color:${est.tension > 8 ? 'var(--red)' : est.tension > 0 ? 'var(--orange)' : 'var(--green)'}">${est.tension > 0 ? '+' : ''}${est.tension}</b></div>
+    </div>
+    ${est.notes.length ? `<div class="ab-notes">${est.notes.map(n => `<div class="warn">${esc(n)}</div>`).join('')}</div>` : ''}
+    <div class="ab-meta"><span>${units.length ? `${units.length} asset${units.length > 1 ? 's' : ''} · arrives in ${hrs(eta)}` : 'Select at least one asset'}</span><span>${g.sandbox ? 'Unrestricted' : 'Cost $' + est.cost.toFixed(1) + 'B'}</span></div>`;
+    return { body, bar: bar(inner, VERB[d.op], units.length > 0) };
   }
 
   _bindDossier() {
@@ -326,7 +368,7 @@ export class UI {
       if (d.op && OPS[d.op].target === 'site' && !d.site) {
         // auto-pick the most relevant visible site (crisis target first)
         const cr = g.crises.find(x => x.ci === d.c.i && x.siteId);
-        const vis = g.world.sitesOf(d.c).filter(s => g.world.visible(s));
+        const vis = g.world.sitesOf(d.c).filter(s => g.world.visible(s) && s.alive);
         d.site = (cr && vis.find(s => s.id === cr.siteId)) || vis.find(s => d.op === 'raid' ? SITE_TYPES[s.type].raidOnly || s.faction : !SITE_TYPES[s.type].raidOnly) || null;
       }
       g.audio.click(); this.renderDossier(); this.refreshSites();
@@ -338,13 +380,13 @@ export class UI {
       if (d.site) g.focusLL(s.ll, Math.min(g.camera.position.length(), 1.9));
       g.audio.click(); this.renderDossier(); this.refreshSites();
     }));
-    body.querySelectorAll('[data-pick]').forEach(b => b.addEventListener('change', () => {
+    body.querySelectorAll('[data-pick]').forEach(b => b.addEventListener('click', () => {
+      if (b.classList.contains('na')) return;
       const id = +b.dataset.pick;
-      if (b.checked) d.picked.add(id); else d.picked.delete(id);
+      if (d.picked.has(id)) d.picked.delete(id); else d.picked.add(id);
       g.audio.click();
-      const scroll = body.querySelector('.assets')?.scrollTop;
+      this._lastOp = d.op; // keep scroll position
       this.renderDossier();
-      const a = body.querySelector('.assets'); if (a && scroll) a.scrollTop = scroll;
     }));
     body.querySelectorAll('[data-recall]').forEach(b => b.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -358,7 +400,7 @@ export class UI {
     if (clear) clear.addEventListener('click', (e) => { e.preventDefault(); this.selUnit = null; this.dirtyForces = true; this.showHint(''); this.renderDossier(); });
     const go = $('go');
     if (go) go.addEventListener('click', () => {
-      const units = g.units.filter(u => d.picked.has(u.id) && u.available);
+      const units = g.units.filter(u => d.picked?.has(u.id) && u.available);
       if (g.order(d.op, d.c, d.site, units)) {
         d.op = null; d.picked = null;
         if (this.selUnit && units.includes(this.selUnit)) { this.selUnit = null; this.showHint(''); }
@@ -368,31 +410,32 @@ export class UI {
   }
 
   confirmWar(c) {
-    this.modal(`<h2>DECLARE WAR ON ${esc(c.name.toUpperCase())}?</h2>
-      <p>Every available cyber team, satellite, aircraft in range, nearby fleet and ground battalion will be committed against ${esc(c.name)}.
-      ${c.stance === 'rival' ? '<b style="color:var(--red)">This is a rival superpower. Expect massive escalation.</b>' : ''}
-      ${c.stance === 'ally' ? '<b style="color:var(--red)">They are your ally.</b>' : ''}</p>`,
-      [['STAND DOWN', null], ['COMMIT ALL FORCES', () => { this.g.declareWar(c); this.renderDossier(); }, 'go']]);
+    // HIG: uncommon, irreversible action -> alert with a clear Cancel; the destructive choice is never the default.
+    this.modal(`<h2>Declare war on ${esc(c.name)}?</h2>
+      <p>Every available cyber team, satellite, aircraft in range, nearby fleet and ground battalion will be committed against ${esc(c.name)}.</p>
+      ${c.stance === 'rival' ? `<div class="callout">${icon('warning', 17)}<div><b>This is a rival superpower.</b> Expect massive escalation.</div></div>` : ''}
+      ${c.stance === 'ally' ? `<div class="callout">${icon('warning', 17)}<div><b>${esc(c.name)} is your ally.</b></div></div>` : ''}`,
+      [['Cancel', null, 'gray'], ['Declare War', () => { this.g.declareWar(c); this.renderDossier(); }, 'destructive']]);
   }
 
   hover(c) {
-    if (!c) { this.showHint(this.selUnit ? `${this.selUnit.t.name} ${this.selUnit.callsign} selected — click any country to task it` : ''); return; }
+    if (!c) { this.showHint(this.selUnit ? `${this.selUnit.callsign} selected · click any country to task it` : ''); return; }
     this.g.audio.hover();
-    const st = STANCE_STYLE[c.stance];
-    this.showHint(`${c.name.toUpperCase()} · ${st.label}${this.selUnit ? ` — task ${this.selUnit.callsign} here` : ''}`);
+    this.showHint(`${c.name} · ${stanceLabel(c.stance)}${this.selUnit ? ` · task ${this.selUnit.callsign} here` : ''}`);
   }
 
-  showHint(t) { $('hint').textContent = t; }
+  showHint(t) { const h = $('hint'); if (h.textContent !== t) h.textContent = t; }
 
   // ====================================================================== crises
   renderCrises() {
     const g = this.g;
     $('crises').innerHTML = g.crises.map(cr => {
       const def = CRISES[cr.type];
-      return `<div class="crisis" data-crisis="${cr.id}">
-        <h4>⚠ ${esc(cr.title)}</h4><div class="loc">${esc(cr.where)} · <span data-left="${cr.id}"></span></div>
-        <div class="hint">${esc(def.hint)}</div><div class="rw">+${def.reward} pts</div>
-        <div class="timer"><b data-timer="${cr.id}"></b></div></div>`;
+      return `<button class="crisis glass" data-crisis="${cr.id}">
+        <div class="top">${icon('warning', 17)}<h4>${esc(cr.title)}</h4></div>
+        <div class="loc">${esc(cr.where)} · <span data-left="${cr.id}"></span></div>
+        <div class="timer"><b data-timer="${cr.id}"></b></div>
+        <div class="foot"><span class="rw">+${def.reward} pts</span><span class="go-hint">Respond ${icon('chevron', 13)}</span></div></button>`;
     }).join('');
     $('crises').querySelectorAll('[data-crisis]').forEach(el => el.addEventListener('click', () => {
       const cr = g.crises.find(x => x.id === +el.dataset.crisis);
@@ -429,7 +472,7 @@ export class UI {
     const t = `D${g.day} ${String(Math.floor(h)).padStart(2, '0')}:${String(Math.floor((h % 1) * 60)).padStart(2, '0')}`;
     const el = document.createElement('div');
     el.className = `msg ${cls}`;
-    el.innerHTML = `<time>${t}</time>${esc(msg)}`;
+    el.innerHTML = `<time>${t}</time>${esc(sentence(msg))}`;
     const list = $('feed-list');
     list.prepend(el);
     while (list.children.length > 80) list.lastChild.remove();
@@ -437,8 +480,8 @@ export class UI {
 
   toast(msg, cls = '') {
     const el = document.createElement('div');
-    el.className = `toast ${cls}`;
-    el.textContent = msg;
+    el.className = `toast glass ${cls}`;
+    el.textContent = nice(msg);
     $('toasts').appendChild(el);
     setTimeout(() => el.remove(), 3700);
     while ($('toasts').children.length > 4) $('toasts').firstChild.remove();
@@ -448,13 +491,8 @@ export class UI {
     const spoken = title.toLowerCase().replace(/defcon (\d)/, 'DEFCON $1').replace(/[:·]/g, ',');
     this.g.audio.say(spoken.charAt(0).toUpperCase() + spoken.slice(1), /missile|global war|defcon 1/i.test(title));
     const el = $('alert');
-    el.classList.remove('hidden');
-    const col = kind === 'good' ? 'var(--green)' : kind === 'info' ? 'var(--cyan)' : '';
-    el.style.color = col;
-    el.style.borderColor = col;
-    el.style.background = kind === 'info' ? 'rgba(0, 24, 40, .75)' : kind === 'good' ? 'rgba(0, 40, 20, .7)' : '';
-    el.style.boxShadow = kind === 'info' ? '0 0 40px rgba(102, 224, 255, .3)' : '';
-    el.innerHTML = `${esc(title)}${sub ? `<small>${esc(sub)}</small>` : ''}`;
+    el.className = `glass ${kind}`;
+    el.innerHTML = `${esc(nice(title))}${sub ? `<small>${esc(sub)}</small>` : ''}`;
     el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
     clearTimeout(this._alertT);
     this._alertT = setTimeout(() => el.classList.add('hidden'), 3200);
@@ -509,14 +547,13 @@ export class UI {
       const isSel = this.dossier?.site === s;
       const show = crisis || s.faction || sel?.i === s.ci || isSel || ['hostage', 'launcher', 'server'].includes(s.type);
       if (!show) continue;
-      const L = this._label('s' + s.id, `marker site-pin ${s.alive ? '' : 'dead'}`, `${s.faction ? '☠ ' : ''}${esc(s.name)}`,
+      const L = this._label('s' + s.id, `marker site-pin ${s.alive ? '' : 'dead'} ${isSel ? 'sel' : ''}`, `${icon(s.faction ? 'cell' : 'site', 12)}${esc(s.name)}`,
         llToVec3(s.ll[0], s.ll[1], GLOBE_R * 1.006), () => { this.openDossier(g.world.countries[s.ci], { site: s, op: SITE_TYPES[s.type].raidOnly ? 'raid' : 'strike' }); });
-      L.minDist = crisis || isSel ? 9 : sel?.i === s.ci ? 3.2 : 2.2;
-      L.el.style.borderColor = isSel ? '#fff' : '';
+      L.minDist = crisis || isSel ? 9 : sel?.i === s.ci ? 2.5 : 2.0;
       // stagger pins within a country so small states don't stack labels on top of each other
       const n = perCountry.get(s.ci) || 0;
       perCountry.set(s.ci, n + 1);
-      L.offsetY = (n % 6) * 15 - 10;
+      L.offsetY = (n % 6) * 20 - 10;
     }
     for (const cr of g.crises) {
       const s = cr.siteId ? g.world.sites.find(x => x.id === cr.siteId) : null;
@@ -524,11 +561,11 @@ export class UI {
       const c = g.world.countries[cr.ci];
       const ll = vis ? s.ll : c.ll;
       const urgent = (cr.end - g.time) / (cr.end - cr.start) < 0.3;
-      const L = this._label('k' + cr.id, `marker crisis-pin ${urgent ? 'urgent' : ''}`, '!', llToVec3(ll[0], ll[1], GLOBE_R * 1.012), () => {
+      const L = this._label('k' + cr.id, `marker crisis-pin ${urgent ? 'urgent' : ''}`, icon('warning', 15), llToVec3(ll[0], ll[1], GLOBE_R * 1.012), () => {
         document.querySelector(`[data-crisis="${cr.id}"]`)?.click();
       });
       L.minDist = 99;
-      L.offsetY = vis ? -22 : 0;
+      L.offsetY = vis ? -26 : 0;
     }
     this._sweep('s'); this._sweep('k');
   }
@@ -554,16 +591,19 @@ export class UI {
     }
   }
 
-  // ====================================================================== modals
-  modal(html, buttons = [['CLOSE', null]]) {
+  // ====================================================================== sheets
+  /** buttons: [label, fn, style] with style prominent | gray | destructive | tinted. Order them Cancel-first:
+   *  HIG puts the most likely choice on the trailing side. opts.stack lays choices out vertically. */
+  modal(html, buttons = [['Done', null, 'prominent']], opts = {}) {
     this.modalOpen = true;
     $('screen-modal').classList.remove('hidden');
-    $('modal-body').innerHTML = html + `<div class="row">${buttons.map(([l, , cls], i) => `<button data-b="${i}" class="${cls || ''}" style="${cls === 'go' ? 'width:auto;padding:8px 18px' : ''}">${l}</button>`).join('')}</div>`;
+    $('modal-body').innerHTML = html + `<div class="row ${opts.stack ? 'stack' : ''}">${buttons.map(([l, , cls], i) => `<button data-b="${i}" class="btn ${cls || 'gray'}">${l}</button>`).join('')}</div>`;
     $('modal-body').querySelectorAll('[data-b]').forEach(b => b.addEventListener('click', () => {
       this.closeModal();
       const fn = buttons[+b.dataset.b][1];
       if (fn) fn();
     }));
+    $('modal-body').scrollTop = 0;
   }
 
   closeModal() { this.modalOpen = false; $('screen-modal').classList.add('hidden'); }
@@ -571,56 +611,56 @@ export class UI {
   briefing() {
     const g = this.g, w = g.world;
     const hostiles = w.countries.filter(c => c.stance === 'hostile').map(c => c.name);
-    this.modal(`<h2>COMMANDER'S BRIEFING</h2>
-      <p>${g.sandbox ? '<b>UNRESTRICTED MODE.</b> Unlimited budget, no failure. The world is your theater.' : `You have <b>60 days</b>. Keep approval up, keep the world from tipping into global war, and resolve crises before their clocks run out.`}</p>
-      <h3>THE WORLD</h3>
-      <p><b style="color:#ff8b3d">Rival powers:</b> ${w.rivals.map(r => esc(r.name)).join(', ')} — strike them and the world holds its breath.<br>
-      <b style="color:var(--red)">Hostile regimes:</b> ${hostiles.map(esc).join(', ')}.<br>
-      <b style="color:#d85cff">Non-state threats:</b> ${w.factions.map(f => `${esc(f.name)} (${f.kind})`).join(', ')} — hidden until you find them.</p>
-      <h3>HOW TO COMMAND</h3>
-      <ul><li><b>Click a country</b> to open its dossier, pick an <b>operation</b>, tick the assets you want, check the odds, <b>EXECUTE</b>.</li>
-      <li>Or <b>select a unit</b> in FORCES, then click any country to task it.</li>
-      <li><b>Crisis cards</b> at the bottom are timed. Click one to jump straight to the right operation.</li>
+    this.modal(`<h2>Commander's Briefing</h2>
+      <p>${g.sandbox ? '<b>Unrestricted mode.</b> Unlimited budget, no failure. The world is your theater.' : `You have <b>60 days</b>. Keep approval up, keep the world from tipping into global war, and resolve crises before their clocks run out.`}</p>
+      <h3>The World</h3>
+      <p><b style="color:var(--rival)">Rival powers:</b> ${w.rivals.map(r => esc(r.name)).join(', ')}. Strike them and the world holds its breath.<br>
+      <b style="color:var(--hostile)">Hostile regimes:</b> ${hostiles.map(esc).join(', ')}.<br>
+      <b style="color:var(--purple)">Non-state threats:</b> ${w.factions.map(f => `${esc(f.name)} (${f.kind})`).join(', ')}, hidden until you find them.</p>
+      <h3>How to Command</h3>
+      <ul><li><b>Choose a country</b> to open its dossier, pick an operation and its assets, check the odds, then press the action button at the bottom.</li>
+      <li>Or <b>select a unit</b> in Forces, then click any country to task it.</li>
+      <li><b>Crisis cards</b> along the bottom are timed. Choose one to jump straight to the right operation.</li>
       <li>Hidden targets need <b>intel</b>: satellites, drones and cyber recon reveal them. Blind their air defenses before you send aircraft.</li>
-      <li><kbd>Space</kbd> pause · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> speed · <kbd>T</kbd> threat board · <kbd>P</kbd> procurement · <kbd>C</kbd> cinematic camera · <kbd>Tab</kbd> next crisis · <kbd>H</kbd> field manual · <kbd>M</kbd>/<kbd>V</kbd> mute/voice · double-click to zoom.</li></ul>`,
-      [['TAKE COMMAND', () => this.toast('The theater is yours, General.', 'good'), 'go']]);
+      <li><kbd>Space</kbd> pause · <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> speed · <kbd>T</kbd> threats · <kbd>P</kbd> procure · <kbd>C</kbd> cinematic camera · <kbd>Tab</kbd> next crisis · <kbd>H</kbd> manual · <kbd>M</kbd> <kbd>V</kbd> mute, voice</li></ul>`,
+      [['Take Command', () => this.toast('The theater is yours, General.', 'good'), 'prominent']]);
   }
 
   help() {
-    this.modal(`<h2>FIELD MANUAL</h2>
-      <h3>ESCALATION LADDER</h3>
-      <p>Recon & Aid (calm) → Patrol & Cyber blinding (low) → Strikes, Raids, Blockades, Grid attacks (medium) → Air Campaign (high) → Invasion & Declared War (maximum).
-      Tension rises with escalation — far more against rivals, allies and neutrals. At <b>DEFCON 1</b> (tension 80+) you have 48 hours to calm things down.</p>
-      <h3>ASSETS</h3>
-      <ul>${Object.values(UNIT_TYPES).map(t => `<li><b>${t.icon} ${t.name}</b> — ${t.blurb}</li>`).join('')}</ul>
-      <h3>TIPS</h3>
+    this.modal(`<h2>Field Manual</h2>
+      <h3>Escalation Ladder</h3>
+      <p>Recon and Aid (calm) → Patrol and Cyber blinding (low) → Strikes, Raids, Blockades, Grid attacks (medium) → Air Campaign (high) → Invasion and declared war (maximum).
+      Tension rises with escalation, far more against rivals, allies and neutrals. At <b>DEFCON 1</b> (tension 80+) you have 48 hours to calm things down.</p>
+      <h3>Assets</h3>
+      <div class="list">${Object.entries(UNIT_TYPES).map(([k, t]) => `<div class="li"><div class="tile sm">${icon(k, 16)}</div><span class="grow"><span class="t">${t.name}</span><span class="d">${t.blurb}</span></span></div>`).join('')}</div>
+      <h3>Tips</h3>
       <ul><li>Air losses come from SAMs and enemy fighters. <b>Cyber: Blind Air Defense</b> cuts SAMs by 85% for a day; stealth (B-2, F-35) and fighter escorts help too.</li>
       <li>Destroyers and carriers near a target automatically try to <b>intercept</b> incoming missiles. Park them near allies you care about.</li>
       <li><b>Invasions</b> need ground power greater than the defenders; air and naval forces on station add support. Captured countries pay you every day.</li>
       <li><b>Humanitarian aid</b> lowers tension and can turn neutrals into allies.</li>
-      <li>Collateral damage costs approval. Better intel = more precise strikes.</li></ul>`);
+      <li>Collateral damage costs approval. Better intel means more precise strikes.</li></ul>`);
   }
 
   threatBoard() {
     const g = this.g, w = g.world;
     g.audio.click();
-    const bar = (v, col) => `<div class="bar" style="width:120px;display:inline-block;vertical-align:middle"><b style="width:${Math.max(0, Math.min(100, v))}%;background:${col}"></b></div>`;
-    let html = `<h2>THREAT BOARD</h2><p class="note">Known organizations and states. Click a known cell or country to plan an operation against it.</p><h3>ORGANIZATIONS</h3>`;
+    const bar = (v, col) => `<div class="meter-line" style="width:110px"><b style="width:${Math.max(0, Math.min(100, v))}%;background:${col}"></b></div>`;
+    let html = `<h2>Threat Board</h2><p>Known organizations and states. Choose a located cell or a country to plan an operation.</p><h3>Organizations</h3>`;
     for (const f of w.factions) {
       const alive = f.cells.filter(s => s.alive);
       const known = alive.filter(s => w.visible(s));
-      html += `<div class="buy" style="grid-template-columns:24px 1fr auto"><div class="ic" style="color:${f.color}">☠</div>
-        <div><b style="color:${f.color}">${esc(f.name)}</b> <span class="note">${esc(f.kind)} · ${alive.length ? `${alive.length} active cell(s), ${known.length} located` : '<b style="color:var(--green)">DISMANTLED</b>'}</span>
-        <div style="margin-top:4px">${known.map(s => `<button data-cell="${s.id}" style="font-size:11px;margin:2px 4px 0 0">◉ ${esc(s.name.replace(f.name + ' ', ''))} · ${esc(w.countries[s.ci].name)}</button>`).join('')}
-        ${alive.length > known.length ? `<span class="note">${alive.length - known.length} unlocated — hosts: ${[...new Set(alive.filter(s => !w.visible(s)).map(s => w.countries[s.ci].name))].map(esc).join(', ')}</span>` : ''}</div></div>
+      html += `<div class="row-card" style="grid-template-columns:34px 1fr auto"><div class="tile" style="color:${f.color};background:${f.color}22">${icon('cell', 18)}</div>
+        <div><b style="color:${f.color}">${esc(f.name)}</b><span class="note">${esc(f.kind)} · ${alive.length ? `${alive.length} active cell${alive.length > 1 ? 's' : ''}, ${known.length} located` : '<b style="color:var(--green)">Dismantled</b>'}</span>
+        <div class="chips">${known.map(s => `<button class="btn tinted small" data-cell="${s.id}">${icon('pin', 14)}${esc(s.name.replace(f.name + ' ', ''))} · ${esc(w.countries[s.ci].name)}</button>`).join('')}
+        ${alive.length > known.length ? `<span class="note">${alive.length - known.length} unlocated · suspected hosts: ${[...new Set(alive.filter(s => !w.visible(s)).map(s => w.countries[s.ci].name))].map(esc).join(', ')}</span>` : ''}</div></div>
         <div>${bar(f.strength, f.color)}</div></div>`;
     }
-    html += `<h3>HOSTILE STATES & RIVAL POWERS</h3>`;
+    html += `<h3>Hostile States and Rival Powers</h3>`;
     const states = w.countries.filter(c => c.stance === 'hostile' || c.stance === 'rival').sort((a, b) => b.mil - a.mil);
     for (const c of states) {
-      html += `<div class="buy" style="grid-template-columns:24px 1fr auto auto;cursor:pointer" data-country="${c.i}"><div class="ic">${c.stance === 'rival' ? '◆' : '▲'}</div>
-        <div><b>${esc(c.name)}</b> <span class="tag ${c.stance}">${STANCE_STYLE[c.stance].label}</span> <span class="note">military ${Math.round(c.mil)} · missiles ${c.missiles} · aggression ${Math.round(c.aggression)} · intel ${Math.round(c.intel)}</span></div>
-        <div>${bar(c.mil, 'var(--red)')}</div><button>PLAN</button></div>`;
+      html += `<div class="row-card"><div class="tile" style="color:var(--${c.stance});background:${c.stance === 'rival' ? 'rgba(255,159,10,.16)' : 'rgba(255,105,97,.16)'}">${icon(c.stance === 'rival' ? 'threats' : 'strike', 18)}</div>
+        <div><b>${esc(c.name)}</b> <span class="tag ${c.stance}">${stanceLabel(c.stance)}</span><span class="note">Military ${Math.round(c.mil)} · missiles ${c.missiles} · aggression ${Math.round(c.aggression)} · intel ${Math.round(c.intel)}</span></div>
+        <div>${bar(c.mil, 'var(--red)')}</div><button class="btn tinted small" data-country="${c.i}">Plan</button></div>`;
     }
     this.modal(html);
     $('modal-body').querySelectorAll('[data-cell]').forEach(b => b.addEventListener('click', () => {
@@ -646,20 +686,17 @@ export class UI {
       if (fx.budget && !this.g.sandbox) parts.push(`budget ${sign(fx.budget)}B`);
       if (fx.intel) parts.push(`intel ${sign(fx.intel)}`);
       if (fx.relation) parts.push(`relations ${fx.relation > 0 ? '↑' : '↓'}`);
-      if (fx.stance) parts.push(`becomes ${fx.stance.toUpperCase()}`);
+      if (fx.stance) parts.push(`becomes ${nice(fx.stance.toUpperCase())}`);
       if (fx.procure) parts.push(`+${[].concat(fx.procure).length} unit`);
       if (fx.adDown) parts.push(`their SAMs down ${fx.adDown}h`);
-      return parts.join(' · ');
+      const s = parts.join(' · ');
+      return s.charAt(0).toUpperCase() + s.slice(1);
     };
-    this.modal(`<div class="kicker" style="text-align:left">PRIORITY TRAFFIC // DECISION REQUIRED</div>
-      <h2>${esc(d.title.toUpperCase())}</h2><p style="font-size:16px">${esc(fill(d.text))}</p>`,
-      d.options.map((o, i) => [`${esc(fill(o.label))}<br><small style="color:var(--muted);font-weight:400">${fxText(o.fx)}${o.note ? ' — ' + esc(o.note) : ''}</small>`, () => onPick(o), i === 0 ? '' : '']));
-    // stack the choices vertically and make them readable
-    const row = $('modal-body').querySelector('.row');
-    row.style.flexDirection = 'column';
-    row.style.alignItems = 'stretch';
-    row.querySelectorAll('button').forEach((b, i) => {
-      b.style.textAlign = 'left'; b.style.padding = '10px 14px';
+    // HIG: no default button when people should read the choices; equal-weight stacked options.
+    this.modal(`<div class="kicker">Priority Traffic · Decision Required</div>
+      <h2>${esc(nice(d.title))}</h2><p style="font-size:16px">${esc(fill(d.text))}</p>`,
+      d.options.map((o) => [`${esc(fill(o.label))}<small>${fxText(o.fx)}${o.note ? ' · ' + esc(o.note) : ''}</small>`, () => onPick(o), 'gray']), { stack: true });
+    $('modal-body').querySelectorAll('.row button').forEach((b, i) => {
       const cost = -(d.options[i].fx.budget || 0);
       if (!this.g.sandbox && cost > 0 && this.g.budget < cost) { b.disabled = true; b.title = 'Insufficient budget'; }
     });
@@ -672,12 +709,12 @@ export class UI {
       const t = UNIT_TYPES[type];
       const owned = g.units.filter(u => u.type === type && u.state !== 'lost').length;
       const afford = g.sandbox || g.budget >= p.price;
-      return `<div class="buy"><div class="ic">${t.icon}</div>
-        <div><b>${t.name}</b> <span class="note">${esc(t.blurb)} · owned ${owned} · delivery ${g.sandbox ? Math.round(p.hours / 4) : p.hours}h</span></div>
-        <span class="price">${g.sandbox ? 'FREE' : '$' + p.price + 'B'}</span>
-        <button data-buy="${type}" ${afford ? '' : 'disabled'}>BUY</button></div>`;
+      return `<div class="row-card"><div class="tile">${icon(type, 19)}</div>
+        <div><b>${t.name}</b><span class="note">${esc(t.blurb)} · you have ${owned} · delivered in ${g.sandbox ? Math.round(p.hours / 4) : p.hours}h</span></div>
+        <span class="price">${g.sandbox ? 'Free' : '$' + p.price + 'B'}</span>
+        <button class="btn tinted small" data-buy="${type}" ${afford ? '' : 'disabled'}>Buy</button></div>`;
     }).join('');
-    this.modal(`<h2>PROCUREMENT</h2><p>Budget: <b>${g.sandbox ? 'unrestricted' : '$' + g.budget.toFixed(1) + 'B'}</b>. New forces are stationed at a suitable base when delivered.</p>${rows}`);
+    this.modal(`<h2>Procurement</h2><p>Budget: <b>${g.sandbox ? 'unrestricted' : '$' + g.budget.toFixed(1) + 'B'}</b>. New forces are stationed at a suitable base when delivered.</p>${rows}`);
     $('modal-body').querySelectorAll('[data-buy]').forEach(b => b.addEventListener('click', () => {
       if (g.procure(b.dataset.buy)) { this.closeModal(); this.procureMenu(); }
     }));
@@ -685,19 +722,20 @@ export class UI {
 
   menu() {
     const g = this.g;
-    this.modal(`<h2>COMMAND MENU</h2><p>Day ${g.day} · Score ${Math.round(g.score)}</p>
+    this.modal(`<h2>Command Menu</h2><p>Day ${g.day} · Score ${Math.round(g.score).toLocaleString()}</p>
       <p class="note">Campaign progress saves automatically every in-game day.</p>`,
-      [['RESUME', null], [g.audio.muted ? 'UNMUTE' : 'MUTE', () => g.audio.toggleMute()], ['FIELD MANUAL', () => this.help()], ['QUIT TO TITLE', () => { g.save(); location.reload(); }]]);
+      [['Quit to Title', () => { g.save(); location.reload(); }, 'gray'], [g.audio.muted ? 'Unmute' : 'Mute', () => g.audio.toggleMute(), 'gray'],
+        ['Field Manual', () => this.help(), 'gray'], ['Resume', null, 'prominent']]);
   }
 
   endScreen(won, title, text) {
     const g = this.g, l = g.log;
     const r = g.rank();
     const final = g.finalScore();
-    this.modal(`<h2>${esc(title)}</h2><p>${esc(text)}</p>
-      ${won ? `<div class="grade">${r[1]}</div><p style="text-align:center"><b>${r[2]}</b> · command rating ${final}/100</p>` : `<div class="grade" style="color:var(--red)">F</div>`}
+    this.modal(`<h2>${esc(nice(title))}</h2><p>${esc(text)}</p>
+      ${won ? `<div class="grade">${r[1]}</div><p style="text-align:center"><b>${esc(nice(r[2]))}</b> · command rating ${final}/100</p>` : `<div class="grade" style="color:var(--red)">F</div>`}
       <div class="kv">
-        <span>Points earned</span><span>${Math.round(g.score)}</span>
+        <span>Points earned</span><span>${Math.round(g.score).toLocaleString()}</span>
         <span>Operations ordered</span><span>${l.ops}</span>
         <span>Crises resolved / failed</span><span>${l.crisesWon} / ${l.crisesLost}</span>
         <span>Targets destroyed</span><span>${l.sitesDestroyed}</span>
@@ -707,8 +745,9 @@ export class UI {
         <span>Civilian harm index</span><span>${l.collateral.toFixed(1)}</span>
         <span>Final approval / tension</span><span>${Math.round(g.approval)} / ${Math.round(g.tension)}</span>
       </div>
-      <h3>COMMENDATIONS (${g.medals.length}/${Object.keys(MEDALS).length})</h3>
-      <p>${g.medals.length ? g.medals.map(id => `<span title="${esc(MEDALS[id][2])}" style="margin-right:12px">${MEDALS[id][0]} <b>${esc(MEDALS[id][1])}</b></span>`).join('') : '<span class="note">None.</span>'}</p>`, [['NEW CAMPAIGN', () => location.reload(), 'go']]);
+      <h3>Commendations · ${g.medals.length} of ${Object.keys(MEDALS).length}</h3>
+      <div class="chips">${g.medals.length ? g.medals.map(id => `<span class="medal" title="${esc(MEDALS[id][2])}">${icon('medal', 15)}${esc(MEDALS[id][1])}</span>`).join('') : '<span class="note">None.</span>'}</div>`,
+      [['New Campaign', () => location.reload(), 'prominent']]);
   }
 
   key(e) {
@@ -720,11 +759,12 @@ export class UI {
     else if (e.key === '3') this.setSpeed(4);
     else if (e.key === 'h' || e.key === 'H') this.help();
     else if (e.key === 'm' || e.key === 'M') this.toast(g.audio.toggleMute() ? 'Audio muted' : 'Audio on');
-    else if (e.key === 'c' || e.key === 'C') { g.cinematic = !g.cinematic; if (!g.cinematic) g.followUnit = null; this.toast(g.cinematic ? 'Cinematic camera ON — follows your next operation' : 'Cinematic camera OFF'); }
+    else if (e.key === 'c' || e.key === 'C') { g.cinematic = !g.cinematic; if (!g.cinematic) g.followUnit = null; this.toast(g.cinematic ? 'Cinematic camera on · follows your next operation' : 'Cinematic camera off'); }
     else if (e.key === 't' || e.key === 'T') this.threatBoard();
     else if (e.key === 'p' || e.key === 'P') this.procureMenu();
     else if (e.key === 'v' || e.key === 'V') this.toast(g.audio.toggleVoice() ? 'Voice callouts on' : 'Voice callouts off');
     else if (e.key === 'Tab') { e.preventDefault(); const cards = [...document.querySelectorAll('[data-crisis]')]; if (cards.length) { this._crisisIdx = ((this._crisisIdx ?? -1) + 1) % cards.length; cards[this._crisisIdx].click(); } }
+    else if (e.key === 'Enter' && !this.modalOpen && e.target.tagName !== 'BUTTON') { const go = $('go'); if (go && !go.disabled) go.click(); }
     else if (e.key === 'Escape') { if (this.modalOpen) this.closeModal(); else if (this.selUnit) { this.selUnit = null; this.showHint(''); this.dirtyForces = true; } else if (this.dossier) this.closeDossier(); else this.menu(); }
     else if ((e.key === 'f' || e.key === 'F') && this.selUnit) g.focusLL(this.selUnit.ll, 1.6);
   }

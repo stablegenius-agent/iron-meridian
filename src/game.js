@@ -189,7 +189,7 @@ export class Game {
     this.medals.push(id);
     const [icon, name, desc] = MEDALS[id];
     this.score += 40;
-    this.toast(`${icon} COMMENDATION · ${name.toUpperCase()}`, 'good');
+    this.toast(`Commendation · ${name}`, 'good');
     this.feed(`Commendation awarded: ${name} — ${desc} (+40)`, 'good');
     this.after(0.8, () => this.audio.say(`Commendation. ${name}.`));
   }

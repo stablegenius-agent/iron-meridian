@@ -154,7 +154,7 @@ export function execute(game, opKey, c, site, units) {
 
   const names = units.map(u => u.name).join(', ');
   const code = op.esc >= 2 || opKey === 'aid' ? codename(game.rng) : null;
-  game.feed(`${code ? `OPERATION ${code} — ` : ''}${op.name.toUpperCase()} → ${site ? site.name + ', ' : ''}${c.name}: ${names}`, 'info');
+  game.feed(`${code ? `Operation ${code.toLowerCase().replace(/w/g, (m) => m.toUpperCase())} · ` : ''}${op.name} → ${site ? site.name + ', ' : ''}${c.name}: ${names}`, 'info');
   if (code) game.ui.alert(`OPERATION ${code}`, `${op.name} · ${c.name}`, opKey === 'aid' ? 'good' : 'info');
 
   for (const u of units) {

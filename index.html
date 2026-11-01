@@ -14,47 +14,51 @@
   <canvas id="view"></canvas>
   <div id="labels"></div>
 
-  <!-- HUD -->
+  <!-- HUD: floating glass controls over the globe (see docs/design-study.md) -->
   <div id="hud" class="hidden">
     <header id="topbar">
-      <div class="brand"><span class="logo">◈</span> IRON MERIDIAN <small>GLOBAL COMMAND</small></div>
-      <div class="clock">
-        <div id="date">DAY 1 · 06:00Z</div>
-        <div class="speeds">
-          <button data-speed="0" title="Pause (Space)">❚❚</button>
-          <button data-speed="0.5" class="on" title="Normal (1)">▶</button>
-          <button data-speed="1.5" title="Fast (2)">▶▶</button>
-          <button data-speed="4" title="Fastest (3)">▶▶▶</button>
+      <div class="glass bar-group" id="tb-left">
+        <div class="brand"><i data-icon="globe"></i><span>Iron Meridian</span></div>
+        <div class="divider"></div>
+        <div id="date">Day 1 · 06:00Z</div>
+        <div class="segmented speeds" role="radiogroup" aria-label="Game speed">
+          <button data-speed="0" title="Pause (Space)" aria-label="Pause"><i data-icon="pause"></i></button>
+          <button data-speed="0.5" class="on" title="Normal speed (1)" aria-label="Normal speed"><i data-icon="play"></i></button>
+          <button data-speed="1.5" title="Fast (2)" aria-label="Fast"><i data-icon="forward"></i></button>
+          <button data-speed="4" title="Fastest (3)" aria-label="Fastest"><i data-icon="forward3"></i></button>
         </div>
       </div>
-      <div class="stat" id="stat-defcon" title="Defense readiness. DEFCON 1 sustained for 48h = global war.">
-        <label>DEFCON</label><div class="defcon"><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="glass bar-group" id="tb-stats">
+        <div class="stat" id="stat-defcon" title="Defense readiness. DEFCON 1 sustained for 48 hours means global war.">
+          <label>DEFCON <b id="defcon-num">5</b></label><div class="defcon"><i></i><i></i><i></i><i></i><i></i></div>
+        </div>
+        <div class="stat" title="World tension: rises with aggression, falls with diplomacy and aid."><label>Tension</label><div class="meter-line warn"><b id="tension-bar"></b></div><span class="num" id="tension-val">0</span></div>
+        <div class="stat" title="Domestic approval: falls with losses, collateral damage and failed crises."><label>Approval</label><div class="meter-line good"><b id="approval-bar"></b></div><span class="num" id="approval-val">0</span></div>
+        <div class="stat" title="Operational budget in billions. Income arrives daily, scaled by approval."><label>Budget</label><span class="num big" id="budget-val">$0B</span></div>
+        <div class="stat" title="Points earned"><label>Score</label><span class="num big" id="score-val">0</span></div>
       </div>
-      <div class="stat" title="World tension: rises with aggression, falls with diplomacy and aid."><label>TENSION</label><div class="bar"><b id="tension-bar"></b></div><span id="tension-val">0</span></div>
-      <div class="stat" title="Domestic approval: falls with losses, collateral damage and failed crises."><label>APPROVAL</label><div class="bar good"><b id="approval-bar"></b></div><span id="approval-val">0</span></div>
-      <div class="stat" title="Operational budget (billions). Income arrives daily, scaled by approval."><label>BUDGET</label><span class="big" id="budget-val">$0B</span></div>
-      <div class="stat"><label>SCORE</label><span class="big" id="score-val">0</span></div>
-      <div class="menu-btns">
-        <button id="btn-threats" title="Threat board (T)">☠<span class="lbl-t"> THREATS</span></button>
-        <button id="btn-help" title="Field manual (H)">?</button>
-        <button id="btn-menu" title="Menu (Esc)">☰</button>
+      <div class="glass bar-group" id="tb-right">
+        <button id="btn-threats" class="btn gray" title="Threat board (T)"><i data-icon="threats"></i><span class="lbl-t">Threats</span></button>
+        <button id="btn-help" class="btn icon-only plain" title="Field manual (H)" aria-label="Field manual"><i data-icon="help"></i></button>
+        <button id="btn-menu" class="btn icon-only plain" title="Menu (Esc)" aria-label="Menu"><i data-icon="menu"></i></button>
       </div>
     </header>
 
-    <aside id="forces" class="panel">
-      <h2>FORCES <span id="forces-count"></span></h2>
-      <button id="btn-procure" class="procure">+ PROCURE NEW FORCES</button>
-      <div class="tabs" id="force-tabs"></div>
+    <aside id="forces" class="glass panel">
+      <div class="panel-head"><h2>Forces</h2><span class="note" id="forces-count"></span>
+        <button id="btn-procure" class="btn tinted small" title="Procurement (P)"><i data-icon="plus"></i>Procure</button></div>
+      <div class="segmented tabs" id="force-tabs" role="radiogroup" aria-label="Filter forces"></div>
       <div id="force-list" class="scroll"></div>
     </aside>
 
-    <aside id="dossier" class="panel hidden">
-      <button class="close" id="dossier-close">✕</button>
+    <aside id="dossier" class="glass panel hidden">
+      <button class="btn icon-only gray round close" id="dossier-close" aria-label="Close"><i data-icon="close"></i></button>
       <div id="dossier-body"></div>
+      <div id="action-bar"></div>
     </aside>
 
     <section id="crises"></section>
-    <section id="feed" class="panel"><h2>COMMS</h2><div id="feed-list" class="scroll"></div></section>
+    <section id="feed" class="glass panel"><div class="panel-head"><h2>Comms</h2></div><div id="feed-list" class="scroll"></div></section>
     <div id="toasts"></div>
     <div id="alert" class="hidden"></div>
     <div id="hint"></div>
@@ -63,25 +67,25 @@
   <!-- Screens -->
   <div id="screen-title" class="screen">
     <div class="title-wrap">
-      <div class="kicker">CLASSIFIED // EYES ONLY</div>
+      <div class="kicker">Classified · Eyes Only</div>
       <h1>IRON MERIDIAN</h1>
-      <div class="sub">GLOBAL COMMAND</div>
+      <div class="sub">Global Command</div>
       <p class="pitch">You are the Theater Commander. Every battalion, squadron, fleet, cyber cell and orbital
         asset answers to you. The world is unstable. Keep it that way — or don't.</p>
       <div class="modes">
-        <button class="mode" data-mode="campaign"><b>CAMPAIGN</b><span>60 days. Budget, approval, escalation. Earn your rank.</span></button>
-        <button class="mode" data-mode="sandbox"><b>UNRESTRICTED</b><span>Unlimited budget, no failure. Every asset, every target.</span></button>
+        <button class="mode glass" data-mode="campaign"><b>Campaign</b><span>60 days. Budget, approval, escalation. Earn your rank.</span><em>Start Campaign <i data-icon="chevron"></i></em></button>
+        <button class="mode glass" data-mode="sandbox"><b>Unrestricted</b><span>Unlimited budget, no failure. Every asset, every target.</span><em>Start Sandbox <i data-icon="chevron"></i></em></button>
       </div>
       <div class="opts">
         <label>Difficulty <select id="opt-diff"><option value="0.8">Analyst</option><option value="1" selected>Commander</option><option value="1.3">Joint Chiefs</option></select></label>
         <label>Quality <select id="opt-quality"><option value="auto" selected>Auto</option><option value="high">High</option><option value="low">Performance</option></select></label>
-        <button id="btn-continue" class="hidden">Continue saved campaign</button>
+        <button id="btn-continue" class="btn prominent hidden">Continue saved campaign</button>
       </div>
       <div class="loading" id="loading">Establishing secure uplink…</div>
     </div>
   </div>
 
-  <div id="screen-modal" class="screen hidden"><div class="modal" id="modal-body"></div></div>
+  <div id="screen-modal" class="screen hidden"><div class="modal glass" id="modal-body" role="dialog" aria-modal="true"></div></div>
 
   <script type="module" src="src/main.js"></script>
 </body>
