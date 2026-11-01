@@ -60,6 +60,7 @@ constellations and an orbital kinetic strike platform — staged from real US ba
 | `T` | Threat board: every organization, known cell and hostile state |
 | `P` | Procurement: spend budget on new squadrons, fleets, battalions, satellites |
 | `F` | Focus the selected unit |
+| `C` | Cinematic camera: ride along with your next operation |
 | `H` | Field manual |
 | `M` / `V` | Mute all audio / toggle voice callouts |
 | `Esc` | Close panel / deselect / menu |

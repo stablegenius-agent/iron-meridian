@@ -802,7 +802,9 @@ export class Game {
   // ====================================================================== orders (from UI)
   order(opKey, c, site, units) {
     if (this.over) return false;
-    return execute(this, opKey, c, site, units);
+    const ok = execute(this, opKey, c, site, units);
+    if (ok && this.cinematic) this.followUnit = units.find(u => u.cls === 'air' || u.cls === 'ground') || units.find(u => u.cls === 'naval') || null;
+    return ok;
   }
 
   /** Back-channel diplomacy with a hostile or rival state: buys down tension at a political price. */
@@ -892,7 +894,7 @@ export class Game {
   _bindInput() {
     const el = this.renderer.domElement;
     let down = null;
-    el.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY]; this.titleSpin = false; this.camAnim = null; });
+    el.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY]; this.titleSpin = false; this.camAnim = null; this.followUnit = null; });
     el.addEventListener('pointermove', e => {
       this.pointer.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
       this._hoverPending = true;
@@ -960,6 +962,17 @@ export class Game {
       const p = this.camera.position;
       const a = dt * 0.05;
       p.set(p.x * Math.cos(a) - p.z * Math.sin(a), p.y, p.x * Math.sin(a) + p.z * Math.cos(a));
+    }
+    if (this.cinematic && this.followUnit && !this.camAnim) {
+      const u = this.followUnit;
+      if (u.state === 'lost' || u.state === 'rearming' || u.state === 'ready' || (u.obj && !u.obj.visible && u.cls !== 'naval')) this.followUnit = null;
+      else {
+        const want = u.worldPos(new THREE.Vector3()).normalize();
+        want.y -= 0.08; want.normalize();
+        const dist = this.camera.position.length();
+        const dir = this.camera.position.clone().normalize().lerp(want, Math.min(1, dt * 1.6)).normalize();
+        this.camera.position.copy(dir.multiplyScalar(dist + (1.7 - dist) * Math.min(1, dt * 0.8)));
+      }
     }
     if (this.camAnim) {
       const k = this.camAnim;

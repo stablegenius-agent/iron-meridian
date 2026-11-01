@@ -582,7 +582,7 @@ export class UI {
       <li>Or <b>select a unit</b> in FORCES, then click any country to task it.</li>
       <li><b>Crisis cards</b> at the bottom are timed. Click one to jump straight to the right operation.</li>
       <li>Hidden targets need <b>intel</b>: satellites, drones and cyber recon reveal them. Blind their air defenses before you send aircraft.</li>
-      <li><kbd>Space</kbd> pause · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> speed · <kbd>H</kbd> field manual · <kbd>M</kbd> mute · double-click to zoom.</li></ul>`,
+      <li><kbd>Space</kbd> pause · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> speed · <kbd>T</kbd> threat board · <kbd>P</kbd> procurement · <kbd>C</kbd> cinematic camera · <kbd>Tab</kbd> next crisis · <kbd>H</kbd> field manual · <kbd>M</kbd>/<kbd>V</kbd> mute/voice · double-click to zoom.</li></ul>`,
       [['TAKE COMMAND', () => this.toast('The theater is yours, General.', 'good'), 'go']]);
   }
 
@@ -692,6 +692,7 @@ export class UI {
     else if (e.key === '3') this.setSpeed(4);
     else if (e.key === 'h' || e.key === 'H') this.help();
     else if (e.key === 'm' || e.key === 'M') this.toast(g.audio.toggleMute() ? 'Audio muted' : 'Audio on');
+    else if (e.key === 'c' || e.key === 'C') { g.cinematic = !g.cinematic; if (!g.cinematic) g.followUnit = null; this.toast(g.cinematic ? 'Cinematic camera ON — follows your next operation' : 'Cinematic camera OFF'); }
     else if (e.key === 't' || e.key === 'T') this.threatBoard();
     else if (e.key === 'p' || e.key === 'P') this.procureMenu();
     else if (e.key === 'v' || e.key === 'V') this.toast(g.audio.toggleVoice() ? 'Voice callouts on' : 'Voice callouts off');
