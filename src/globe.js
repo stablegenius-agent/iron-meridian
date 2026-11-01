@@ -220,8 +220,8 @@ export class Globe {
           col += lights * (1.0 - day) * 0.9 * land.a;
           // sun glint on open water and a warm band along the terminator
           vec3 sd = normalize(sunDir);
-          float spec = pow(max(dot(reflect(-sd, n), viewDir), 0.0), 60.0);
-          col += vec3(1.0, 0.85, 0.6) * spec * 0.55 * (1.0 - land.a) * day;
+          float spec = pow(max(dot(reflect(-sd, n), viewDir), 0.0), 220.0);
+          col += vec3(1.0, 0.85, 0.6) * spec * 0.3 * (1.0 - land.a) * day;
           col += vec3(1.0, 0.45, 0.15) * exp(-pow(ndl * 7.0, 2.0)) * 0.10;
 
           if (id > 0.5 && abs(id - hoverId) < 0.5) col += vec3(0.10, 0.16, 0.20);
