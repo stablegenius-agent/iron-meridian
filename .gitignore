@@ -1,0 +1,5 @@
+tools/*.geojson
+tools/blender/preview.png
+__pycache__/
+*.log
+.DS_Store
