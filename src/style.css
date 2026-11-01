@@ -191,3 +191,14 @@ select { font: inherit; background: #07131d; color: var(--text); border: 1px sol
 @media (max-width: 1900px) { .brand small { display: none; } }
 @media (max-width: 1650px) { .brand { font-size: 15px; letter-spacing: .14em; } #btn-threats .lbl-t { display: none; } }
 @media (max-width: 1500px) { #forces { width: 260px; } #feed { width: 260px; } #crises { left: 284px; } .stat label { letter-spacing: .08em; } }
+@media (max-width: 1350px) {
+  #topbar { gap: 8px; padding: 0 10px; }
+  .brand { font-size: 13px; letter-spacing: .1em; }
+  #date { min-width: 118px; font-size: 13px; }
+  .stat label { font-size: 9px; letter-spacing: .04em; }
+  .bar { width: 40px; }
+  .stat .big { font-size: 14px; }
+  .defcon i { width: 10px; height: 10px; }
+  #dossier { width: 330px; }
+  #crises { right: 350px; }
+}

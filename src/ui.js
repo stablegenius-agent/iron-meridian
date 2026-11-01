@@ -72,6 +72,8 @@ export class UI {
     $('btn-menu').addEventListener('click', () => this.menu());
     $('btn-procure').addEventListener('click', () => this.procureMenu());
     $('btn-threats').addEventListener('click', () => this.threatBoard());
+    $('dossier').addEventListener('pointerdown', () => { this._dossierPress = true; });
+    addEventListener('pointerup', () => { this._dossierPress = false; });
     $('force-list').addEventListener('click', (e) => {
       const row = e.target.closest('[data-unit]');
       if (!row) return;
@@ -96,7 +98,13 @@ export class UI {
       if (this.dirtyForces) { this.renderForces(); this.dirtyForces = false; }
       this._updateCrisisTimers();
       this._tick = (this._tick || 0) + 1;
-      if (this._tick % 4 === 0) { this.renderForces(); if (this.dossier && !this.dossier.op) this.renderDossier(); else if (this.dossier) this._refreshMeters(); }
+      if (this._tick % 4 === 0) {
+        this.renderForces();
+        // Rebuild the dossier only when something changed, and never under a pressed mouse button
+        // (replacing the DOM between mousedown and mouseup swallows the click).
+        if (this.dossier && this.dirtyDossier && !this._dossierPress) { this.dirtyDossier = false; this.renderDossier(); }
+        else if (this.dossier) this._refreshMeters();
+      }
       this.renderTop();
     }
     this._positionLabels();
@@ -242,6 +250,12 @@ export class UI {
     $('dossier-body').innerHTML = html;
     this._bindDossier();
     g.setPreview(this._preview?.[0], this._preview?.[1]);
+    // Bring the plan (and its EXECUTE button) into view when an operation was just chosen.
+    if (d.op && this._lastOp !== d.op) {
+      const plan = $('dossier-body').querySelector('.plan');
+      if (plan) plan.scrollIntoView({ block: 'end', behavior: 'smooth' });
+    }
+    this._lastOp = d.op;
   }
 
   _meters(c) {
@@ -255,6 +269,13 @@ export class UI {
   _refreshMeters() {
     const m = $('dz-meters');
     if (m && this.dossier) m.innerHTML = this._meters(this.dossier.c);
+    // keep site health bars live without rebuilding the panel
+    if (this.dossier) for (const el of $('dossier-body').querySelectorAll('[data-site]')) {
+      const s = this.g.world.sites.find(x => x.id === +el.dataset.site);
+      const b = el.querySelector('.hp b');
+      if (s && b) b.style.width = `${s.hp / s.maxHp * 100}%`;
+      if (s && !s.alive) el.classList.add('dead');
+    }
   }
 
   _planHtml() {
@@ -274,6 +295,7 @@ export class UI {
         // strikes: prefer the hardest hitter among the quickest few
         let pool = ready;
         if (d.op === 'strike') pool = [...ready].sort((a, b) => (b.u.t.strike || b.u.t.cyber || 0) / (1 + b.eta / 12) - (a.u.t.strike || a.u.t.cyber || 0) / (1 + a.eta / 12));
+        if (d.op === 'recon') pool = [...ready].sort((a, b) => (b.u.t.recon || 15) / (1 + b.eta / 6) - (a.u.t.recon || 15) / (1 + a.eta / 6));
         pool.slice(0, n).forEach(e => d.picked.add(e.u.id));
       }
     }
@@ -478,6 +500,7 @@ export class UI {
   refreshSites() {
     const g = this.g;
     if (!g.started) return;
+    this.dirtyDossier = true;
     const sel = this.dossier?.c;
     const perCountry = new Map();
     for (const s of g.world.sites) {
@@ -644,8 +667,9 @@ export class UI {
     const r = g.rank();
     const final = g.finalScore();
     this.modal(`<h2>${esc(title)}</h2><p>${esc(text)}</p>
-      ${won ? `<div class="grade">${r[1]}</div><p style="text-align:center"><b>${r[2]}</b> · final score ${final}</p>` : `<div class="grade" style="color:var(--red)">F</div>`}
+      ${won ? `<div class="grade">${r[1]}</div><p style="text-align:center"><b>${r[2]}</b> · command rating ${final}/100</p>` : `<div class="grade" style="color:var(--red)">F</div>`}
       <div class="kv">
+        <span>Points earned</span><span>${Math.round(g.score)}</span>
         <span>Operations ordered</span><span>${l.ops}</span>
         <span>Crises resolved / failed</span><span>${l.crisesWon} / ${l.crisesLost}</span>
         <span>Targets destroyed</span><span>${l.sitesDestroyed}</span>
@@ -662,10 +686,10 @@ export class UI {
   key(e) {
     const g = this.g;
     if (!g.started || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-    if (e.code === 'Space') { e.preventDefault(); this.setSpeed(g.speed === 0 ? (this._lastSpeed || 1) : (this._lastSpeed = g.speed, 0)); }
-    else if (e.key === '1') this.setSpeed(1);
-    else if (e.key === '2') this.setSpeed(3);
-    else if (e.key === '3') this.setSpeed(8);
+    if (e.code === 'Space') { e.preventDefault(); this.setSpeed(g.speed === 0 ? (this._lastSpeed || 0.5) : (this._lastSpeed = g.speed, 0)); }
+    else if (e.key === '1') this.setSpeed(0.5);
+    else if (e.key === '2') this.setSpeed(1.5);
+    else if (e.key === '3') this.setSpeed(4);
     else if (e.key === 'h' || e.key === 'H') this.help();
     else if (e.key === 'm' || e.key === 'M') this.toast(g.audio.toggleMute() ? 'Audio muted' : 'Audio on');
     else if (e.key === 't' || e.key === 'T') this.threatBoard();

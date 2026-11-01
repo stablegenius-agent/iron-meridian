@@ -26,7 +26,7 @@ export class Game {
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
     this.started = false;
-    this.speed = 1;
+    this.speed = 0.5;
     this.time = 6;
     this.timers = [];
     this.camAnim = null;
@@ -246,7 +246,7 @@ export class Game {
       // Threat surges: occasionally two crises hit at once, more often as the campaign wears on.
       if (this.rng() < 0.1 + this.day / 200) this.after(3, () => this.spawnCrisis());
       const ramp = (0.85 + this.day / 40) * (0.9 + this.tension / 160) * this.difficulty;
-      this.nextCrisisAt = this.time + (18 + this.rng() * 22) / ramp;
+      this.nextCrisisAt = this.time + (24 + this.rng() * 26) / ramp;
     }
     // escalation watchdog
     if (this.tension >= 80) {
@@ -359,6 +359,7 @@ export class Game {
 
   unitLost(u, why) {
     if (u.state === 'lost') return;
+    this.ui.dirtyDossier = true;
     u.destroy();
     this.log.unitsLost++;
     this.approval -= this.sandbox ? 0 : 3.5;
@@ -1005,8 +1006,14 @@ export class Game {
     localStorage.removeItem('iron-meridian-save');
   }
 
+  /** Command Rating 0-100: judged on outcomes and ratios, not on how many crises happened to spawn. */
   finalScore() {
-    return Math.round(this.score + this.approval * 6 - this.tension * 3 + this.log.crisesWon * 10);
+    const l = this.log;
+    const total = l.crisesWon + l.crisesLost;
+    const winRate = total ? l.crisesWon / total : 0.5;
+    const r = winRate * 50 + this.approval / 100 * 20 + (1 - this.tension / 100) * 10 + this.medals.length * 2
+      + Math.min(10, l.controlled * 3 + l.cellsDestroyed * 0.5) - l.unitsLost * 1 - l.collateral * 0.3;
+    return Math.round(clamp(r, 0, 100));
   }
 
   rank() {

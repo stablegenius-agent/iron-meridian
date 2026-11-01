@@ -197,6 +197,6 @@ export const MEDALS = {
 };
 
 export const RANKS = [
-  [4200, 'S', 'Five-Star Legend'], [3200, 'A', 'Supreme Commander'], [2200, 'B', 'Respected General'],
-  [1200, 'C', 'Adequate Steward'], [0, 'D', 'Quietly Reassigned'], [-1e9, 'F', 'Court-Martialed'],
+  [85, 'S', 'Five-Star Legend'], [72, 'A', 'Supreme Commander'], [58, 'B', 'Respected General'],
+  [42, 'C', 'Adequate Steward'], [25, 'D', 'Quietly Reassigned'], [-1e9, 'F', 'Court-Martialed'],
 ];

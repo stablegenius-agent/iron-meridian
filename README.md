@@ -54,7 +54,7 @@ constellations and an orbital kinetic strike platform — staged from real US ba
 |---|---|
 | Mouse drag / wheel | Orbit / zoom the globe; double-click to zoom to a point |
 | `Space` | Pause / resume |
-| `1` `2` `3` | 1× / 3× / 8× speed |
+| `1` `2` `3` | Normal / fast / fastest speed |
 | Click a unit on the globe | Select it, then click a country to task it |
 | `Tab` | Cycle through active crises |
 | `T` | Threat board: every organization, known cell and hostile state |
