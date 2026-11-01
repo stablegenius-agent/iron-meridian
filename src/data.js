@@ -182,6 +182,75 @@ export const PROCURE = {
   orbital: { price: 120, hours: 120, at: 'space', names: ['ZEUS', 'ARES'] },
 };
 
+// Command dilemmas: timed decisions with trade-offs. Placeholders: {ally} {rival} {hostile} {neutral} {unit}.
+// Each option's `fx` is applied by Game.applyEffects: approval, tension, budget, score, intel (+on subject),
+// relation (subject), stance (subject -> stance), crisis (spawn type), unitHp (on {unit}), procure (free unit type).
+export const DILEMMAS = [
+  { id: 'sub', needs: ['rival', 'unit:carrier'], title: 'Shadow in the Deep',
+    text: 'A {rival} attack submarine has been tailing {unit} for six hours. It is inside torpedo range.',
+    options: [
+      { label: 'Ping it with active sonar and force it off', fx: { tension: 6, approval: 2, score: 15 }, note: 'Assertive. They will remember.' },
+      { label: 'Quietly reposition and log it', fx: { score: 5 }, note: 'Nothing happens. Probably.' },
+      { label: 'Drop practice depth charges as a warning', fx: { tension: 14, approval: 4, score: 25 }, note: 'Loud. Very loud.' },
+    ] },
+  { id: 'leak', needs: ['did:strike'], title: 'The Leak',
+    text: 'A whistleblower has given a major newspaper drone footage of one of your strikes. Civilians are visible.',
+    options: [
+      { label: 'Own it: open an investigation and pay compensation', fx: { approval: -3, budget: -6, tension: -5, score: 20 } },
+      { label: 'Deny everything', fx: { approval: 3, tension: 6, score: -10 }, note: 'Works until it doesn\'t.' },
+      { label: 'Classify the footage and prosecute the leaker', fx: { approval: -6, tension: 2 } },
+    ] },
+  { id: 'arms', needs: ['ally', 'rival'], title: 'Arms Request',
+    text: '{ally} asks for an emergency shipment of air-defense systems, citing pressure from {rival}.',
+    options: [
+      { label: 'Approve the shipment', fx: { budget: -12, tension: 5, relation: 25, score: 25 } },
+      { label: 'Offer training instead', fx: { budget: -3, relation: 5, score: 5 } },
+      { label: 'Refuse — we can\'t be everywhere', fx: { relation: -30, approval: -2 }, note: 'Allies talk to each other.' },
+    ] },
+  { id: 'defector', needs: ['hostile'], title: 'The Defector',
+    text: 'A senior officer from {hostile}\'s general staff walks into an embassy offering their entire order of battle.',
+    options: [
+      { label: 'Exfiltrate them tonight', fx: { intel: 60, tension: 6, score: 30 }, note: 'Full map of their military.' },
+      { label: 'Run them as an agent in place', fx: { intel: 30, score: 15 } },
+      { label: 'Turn them away — it smells like a trap', fx: { score: 0 } },
+    ] },
+  { id: 'coup', needs: ['ally'], title: 'Coup Attempt',
+    text: 'Tanks are in the streets of {ally}\'s capital. A faction of the army is trying to overthrow the government.',
+    options: [
+      { label: 'Back the government with special forces', fx: { approval: -2, tension: 4, relation: 30, score: 40 }, note: 'Alliance secured.' },
+      { label: 'Call for calm and stay out', fx: { stance: 'neutral', approval: 1 }, note: 'The junta drifts away from you.' },
+      { label: 'Quietly support the plotters', fx: { stance: 'hostile', tension: 8, approval: -5, score: -20 }, note: 'It goes badly.' },
+    ] },
+  { id: 'summit', needs: ['rival'], title: 'Summit Invitation',
+    text: '{rival}\'s leadership proposes an emergency summit on de-escalation. Hawks in Congress are furious.',
+    options: [
+      { label: 'Attend and negotiate', fx: { tension: -15, approval: -4, score: 20 } },
+      { label: 'Send a junior delegation', fx: { tension: -5, score: 5 } },
+      { label: 'Decline publicly', fx: { tension: 7, approval: 4 } },
+    ] },
+  { id: 'contractor', needs: [], title: 'Defense Contractor',
+    text: 'A defense contractor offers an accelerated delivery of a drone flight — at a premium, no questions asked.',
+    options: [
+      { label: 'Buy it ($12B)', fx: { budget: -12, procure: 'drone', score: 5 } },
+      { label: 'Buy two ($22B)', fx: { budget: -22, procure: ['drone', 'drone'], score: 5 } },
+      { label: 'Decline', fx: {} },
+    ] },
+  { id: 'hacker', needs: ['hostile'], title: 'Zero-Day for Sale',
+    text: 'A broker offers a zero-day exploit into {hostile}\'s air-defense network. The seller is anonymous.',
+    options: [
+      { label: 'Buy it ($8B)', fx: { budget: -8, adDown: 72, score: 15 }, note: 'Their SAMs go dark for three days.' },
+      { label: 'Report the broker to allies', fx: { tension: -3, score: 10 } },
+      { label: 'Ignore it', fx: {} },
+    ] },
+  { id: 'refugees', needs: ['neutral'], title: 'Refugee Crisis',
+    text: 'Fighting has displaced a million people across {neutral}\'s border. The UN asks for US airlift support.',
+    options: [
+      { label: 'Commit airlift and funding', fx: { budget: -8, tension: -6, approval: 3, relation: 30, score: 30 } },
+      { label: 'Fund NGOs only', fx: { budget: -3, tension: -2, score: 10 } },
+      { label: 'Not our problem', fx: { approval: -2, tension: 3 } },
+    ] },
+];
+
 export const MEDALS = {
   first_blood: ['⚔', 'First Blood', 'Destroyed your first target.'],
   hearts: ['✚', 'Hearts and Minds', 'Delivered humanitarian aid.'],

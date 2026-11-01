@@ -1,6 +1,6 @@
 // Game orchestrator: time, simulation ticks, crises, enemy AI, input, camera, persistence.
 import * as THREE from 'three';
-import { BASES, CRISES, FACTIONS, MEDALS, PROCURE, RANKS, ROSTER, SANDBOX_EXTRA, SITE_TYPES, STANCE_STYLE, UNIT_TYPES } from './data.js';
+import { BASES, CRISES, DILEMMAS, FACTIONS, MEDALS, PROCURE, RANKS, ROSTER, SANDBOX_EXTRA, SITE_TYPES, STANCE_STYLE, UNIT_TYPES } from './data.js';
 import { GLOBE_R, distanceKm, llToVec3, makeRng, slerpUnit, vec3ToLL } from './geo.js';
 import { SeaNav } from './nav.js';
 import { World } from './world.js';
@@ -57,6 +57,8 @@ export class Game {
     this.log = { ops: 0, sitesDestroyed: 0, cellsDestroyed: 0, crisesWon: 0, crisesLost: 0, unitsLost: 0, collateral: 0, controlled: 0, aid: 0 };
     this.medals = [];
     this.peakTension = 0;
+    this.nextDilemmaAt = 50 + this.rng() * 30;
+    this.dilemmasSeen = [];
     this.lastHour = Math.floor(this.time);
     this.over = false;
 
@@ -247,6 +249,10 @@ export class Game {
       if (this.rng() < 0.1 + this.day / 200) this.after(3, () => this.spawnCrisis());
       const ramp = (0.85 + this.day / 40) * (0.9 + this.tension / 160) * this.difficulty;
       this.nextCrisisAt = this.time + (24 + this.rng() * 26) / ramp;
+    }
+    if (this.time >= this.nextDilemmaAt && !this.ui.modalOpen) {
+      this.nextDilemmaAt = this.time + 60 + this.rng() * 50;
+      this.dilemma();
     }
     // escalation watchdog
     if (this.tension >= 80) {
@@ -805,6 +811,58 @@ export class Game {
     const ok = execute(this, opKey, c, site, units);
     if (ok && this.cinematic) this.followUnit = units.find(u => u.cls === 'air' || u.cls === 'ground') || units.find(u => u.cls === 'naval') || null;
     return ok;
+  }
+
+  /** Present a command dilemma (pauses the game until answered). */
+  dilemma() {
+    const w = this.world, rng = this.rng;
+    const pick = (arr) => arr.length ? arr[Math.floor(rng() * arr.length)] : null;
+    const pools = {
+      ally: w.countries.filter(c => c.stance === 'ally'), rival: w.rivals.filter(c => c.stance === 'rival'),
+      hostile: w.countries.filter(c => c.stance === 'hostile'), neutral: w.countries.filter(c => c.stance === 'neutral' && c.pop > 5e6),
+    };
+    const unseen = DILEMMAS.filter(d => !this.dilemmasSeen.includes(d.id));
+    const ok = (n) => n === 'did:strike' ? this.log.sitesDestroyed > 0
+      : n.startsWith('unit:') ? this.units.some(u => u.type === n.slice(5) && u.state !== 'lost') : pools[n].length > 0;
+    const cands = (unseen.length ? unseen : DILEMMAS).filter(d => d.needs.every(ok));
+    const d = pick(cands);
+    if (!d) return;
+    this.dilemmasSeen.push(d.id);
+    const ctx = {};
+    for (const n of d.needs) {
+      if (n.startsWith('did:')) continue;
+      if (n.startsWith('unit:')) ctx.unit = pick(this.units.filter(u => u.type === n.slice(5) && u.state !== 'lost'));
+      else ctx[n] = pick(pools[n]);
+    }
+    const subject = ctx.hostile || ctx.ally || ctx.neutral || ctx.rival || null;
+    const fill = (s) => s.replace(/\{(\w+)\}/g, (_, k) => ctx[k] ? (ctx[k].name || ctx[k].callsign) : k);
+    this.audio.alarm();
+    this.audio.say(`Priority message. ${d.title}.`, true);
+    this.ui.dilemma(d, fill, (opt) => {
+      this.applyEffects(opt.fx, subject);
+      this.feed(`DECISION — ${d.title}: ${fill(opt.label)}.`, 'info');
+      if (subject) this.focusLL(subject.ll, Math.max(2.2, this.camera.position.length()));
+    });
+  }
+
+  applyEffects(fx, subject) {
+    if (fx.approval && !this.sandbox) this.approval = clamp(this.approval + fx.approval, 0, 100);
+    if (fx.tension) this.addTension(fx.tension);
+    if (fx.budget && !this.sandbox) this.budget += fx.budget;
+    if (fx.score) this.score += fx.score;
+    if (subject) {
+      if (fx.intel) { subject.intel = clamp(subject.intel + fx.intel, 0, 100); this.ui.refreshSites(); }
+      if (fx.relation) subject.relation += fx.relation;
+      if (fx.adDown) { subject.adDownUntil = this.time + fx.adDown; this.world.recompute(subject, this.time); }
+      if (fx.stance) { this.world.setStance(subject, fx.stance, true); if (fx.stance === 'hostile') subject.aggression = 45; this.ui.refreshLabels(); }
+    }
+    for (const t of [].concat(fx.procure || [])) {
+      // the dilemma's own budget effect is the price; credit procure() so it nets to zero
+      if (!this.sandbox) this.budget += PROCURE[t].price;
+      this.procure(t);
+    }
+    if (fx.crisis) this.spawnCrisis(fx.crisis);
+    this.ui.dirtyTop = true;
   }
 
   /** Back-channel diplomacy with a hostile or rival state: buys down tension at a political price. */

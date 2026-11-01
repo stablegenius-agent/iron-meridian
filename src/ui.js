@@ -637,6 +637,30 @@ export class UI {
     }));
   }
 
+  dilemma(d, fill, onPick) {
+    const fxText = (fx) => {
+      const parts = [];
+      const sign = (v) => (v > 0 ? '+' : '') + v;
+      if (fx.approval) parts.push(`approval ${sign(fx.approval)}`);
+      if (fx.tension) parts.push(`tension ${sign(fx.tension)}`);
+      if (fx.budget && !this.g.sandbox) parts.push(`budget ${sign(fx.budget)}B`);
+      if (fx.intel) parts.push(`intel ${sign(fx.intel)}`);
+      if (fx.relation) parts.push(`relations ${fx.relation > 0 ? '↑' : '↓'}`);
+      if (fx.stance) parts.push(`becomes ${fx.stance.toUpperCase()}`);
+      if (fx.procure) parts.push(`+${[].concat(fx.procure).length} unit`);
+      if (fx.adDown) parts.push(`their SAMs down ${fx.adDown}h`);
+      return parts.join(' · ');
+    };
+    this.modal(`<div class="kicker" style="text-align:left">PRIORITY TRAFFIC // DECISION REQUIRED</div>
+      <h2>${esc(d.title.toUpperCase())}</h2><p style="font-size:16px">${esc(fill(d.text))}</p>`,
+      d.options.map((o, i) => [`${esc(fill(o.label))}<br><small style="color:var(--muted);font-weight:400">${fxText(o.fx)}${o.note ? ' — ' + esc(o.note) : ''}</small>`, () => onPick(o), i === 0 ? '' : '']));
+    // stack the choices vertically and make them readable
+    const row = $('modal-body').querySelector('.row');
+    row.style.flexDirection = 'column';
+    row.style.alignItems = 'stretch';
+    row.querySelectorAll('button').forEach(b => { b.style.textAlign = 'left'; b.style.padding = '10px 14px'; });
+  }
+
   procureMenu() {
     const g = this.g;
     g.audio.click();
