@@ -51,8 +51,23 @@ export class SeaNav {
   /** A sea station off a country's coast (or null if landlocked beyond ~1000 km). */
   stationFor(country) {
     if (this.stationCache.has(country.id)) return this.stationCache.get(country.id);
-    let s = this.nearestSea(country.label[0], country.label[1], 10);
-    if (s && distanceKm(s, country.label) > 1400) s = null;
+    // A country is coastal if several of its border vertices sit in open-sea cells (or touch one).
+    // The station is the sea cell next to the coast vertex closest to the country's label point.
+    let best = null, bestD = Infinity, hits = 0;
+    for (const poly of country.polys || []) {
+      const ring = poly[0];
+      for (let i = 0; i < ring.length; i += 2) {
+        const [lon, lat] = ring[i];
+        const [c, r] = this.cell(lon, lat);
+        let sea = null;
+        for (let dr = -1; dr <= 1 && !sea; dr++) for (let dc = -1; dc <= 1 && !sea; dc++) if (this.isSea(c + dc, r + dr)) sea = this.center((c + dc + COLS) % COLS, r + dr);
+        if (!sea) continue;
+        hits++;
+        const d = distanceKm(sea, country.label);
+        if (d < bestD) { bestD = d; best = sea; }
+      }
+    }
+    const s = hits >= 3 ? best : null;
     this.stationCache.set(country.id, s);
     return s;
   }

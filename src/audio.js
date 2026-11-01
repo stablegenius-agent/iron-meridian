@@ -22,7 +22,26 @@ export class Audio {
     this._startMusic();
   }
 
-  toggleMute() { this.muted = !this.muted; if (this.master) this.master.gain.value = this.muted ? 0 : 0.55; return this.muted; }
+  toggleMute() { this.muted = !this.muted; if (this.master) this.master.gain.value = this.muted ? 0 : 0.55; if (this.muted) speechSynthesis?.cancel(); return this.muted; }
+
+  /** Radio-style voice callouts via the OS speech engine (no assets). */
+  say(text, priority = false) {
+    if (this.muted || this.voiceOff || !window.speechSynthesis) return;
+    const now = performance.now();
+    if (!priority && this.lastSay && now - this.lastSay < 4500) return;
+    if (speechSynthesis.speaking) { if (!priority) return; speechSynthesis.cancel(); }
+    this.lastSay = now;
+    const u = new SpeechSynthesisUtterance(text);
+    if (!this.voice) {
+      const voices = speechSynthesis.getVoices();
+      this.voice = voices.find(v => /en-US/i.test(v.lang) && /(Guy|Christopher|Eric|David|Mark)/i.test(v.name)) || voices.find(v => /en-US/i.test(v.lang)) || voices[0] || null;
+    }
+    if (this.voice) u.voice = this.voice;
+    u.rate = 1.08; u.pitch = 0.85; u.volume = 0.85;
+    speechSynthesis.speak(u);
+  }
+
+  toggleVoice() { this.voiceOff = !this.voiceOff; if (this.voiceOff) speechSynthesis?.cancel(); return !this.voiceOff; }
 
   _noise(sec) {
     const b = this.ctx.createBuffer(1, this.ctx.sampleRate * sec, this.ctx.sampleRate);

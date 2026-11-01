@@ -1,6 +1,6 @@
 // DOM interface: HUD, forces roster, dossier/operation planner, crises, comms, labels, modals.
 import * as THREE from 'three';
-import { CLASSES, CRISES, OPS, SITE_TYPES, STANCE_STYLE, UNIT_TYPES } from './data.js';
+import { CLASSES, CRISES, MEDALS, OPS, SITE_TYPES, STANCE_STYLE, UNIT_TYPES } from './data.js';
 import { GLOBE_R, distanceKm, llToVec3 } from './geo.js';
 import { availableOps, eligibleUnits, estimate } from './ops.js';
 
@@ -177,6 +177,7 @@ export class UI {
 
   closeDossier() {
     this.dossier = null;
+    this.g.setPreview(null);
     $('dossier').classList.add('hidden');
     this.g.globe.setSelected(-1);
     this.refreshSites();
@@ -230,9 +231,11 @@ export class UI {
     }
     if (c.stance !== 'home' && c.stance !== 'controlled' && !this.selUnit) html += `<button class="op warop" data-war="1"><b>☢ DECLARE WAR</b><span>Commit every available asset: cyber, air campaign, blockade, invasion.</span></button>`;
     html += `</div>`;
+    this._preview = null;
     if (d.op) html += this._planHtml();
     $('dossier-body').innerHTML = html;
     this._bindDossier();
+    g.setPreview(this._preview?.[0], this._preview?.[1]);
   }
 
   _meters(c) {
@@ -273,6 +276,7 @@ export class UI {
         <span>${e.u.t.icon} ${esc(e.u.callsign)} <span class="note">${e.u.t.short}</span></span>
         <span class="eta">${e.ready ? 'ETA ' + hrs(e.eta) : e.why}</span></label>`).join('') + `</div>`;
     const units = elig.filter(e => d.picked.has(e.u.id) && e.ready).map(e => e.u);
+    this._preview = [units, d.site ? d.site.ll : c.ll];
     const est = estimate(g, d.op, c, d.site, units);
     const col = (v, good) => v === 'MIN' || v === 'LOW' ? 'var(--green)' : v === 'MED' ? 'var(--amber)' : 'var(--red)';
     h += `<div class="odds">
@@ -411,6 +415,8 @@ export class UI {
   }
 
   alert(title, sub = '', kind = 'bad') {
+    const spoken = title.toLowerCase().replace(/defcon (\d)/, 'DEFCON $1').replace(/[:·]/g, ',');
+    this.g.audio.say(spoken.charAt(0).toUpperCase() + spoken.slice(1), /missile|global war|defcon 1/i.test(title));
     const el = $('alert');
     el.classList.remove('hidden');
     el.style.color = kind === 'good' ? 'var(--green)' : '';
@@ -577,7 +583,9 @@ export class UI {
         <span>Units lost</span><span>${l.unitsLost}</span>
         <span>Civilian harm index</span><span>${l.collateral.toFixed(1)}</span>
         <span>Final approval / tension</span><span>${Math.round(g.approval)} / ${Math.round(g.tension)}</span>
-      </div>`, [['NEW CAMPAIGN', () => location.reload(), 'go']]);
+      </div>
+      <h3>COMMENDATIONS (${g.medals.length}/${Object.keys(MEDALS).length})</h3>
+      <p>${g.medals.length ? g.medals.map(id => `<span title="${esc(MEDALS[id][2])}" style="margin-right:12px">${MEDALS[id][0]} <b>${esc(MEDALS[id][1])}</b></span>`).join('') : '<span class="note">None.</span>'}</p>`, [['NEW CAMPAIGN', () => location.reload(), 'go']]);
   }
 
   key(e) {
@@ -589,6 +597,8 @@ export class UI {
     else if (e.key === '3') this.setSpeed(8);
     else if (e.key === 'h' || e.key === 'H') this.help();
     else if (e.key === 'm' || e.key === 'M') this.toast(g.audio.toggleMute() ? 'Audio muted' : 'Audio on');
+    else if (e.key === 'v' || e.key === 'V') this.toast(g.audio.toggleVoice() ? 'Voice callouts on' : 'Voice callouts off');
+    else if (e.key === 'Tab') { e.preventDefault(); const cards = [...document.querySelectorAll('[data-crisis]')]; if (cards.length) { this._crisisIdx = ((this._crisisIdx ?? -1) + 1) % cards.length; cards[this._crisisIdx].click(); } }
     else if (e.key === 'Escape') { if (this.modalOpen) this.closeModal(); else if (this.selUnit) { this.selUnit = null; this.showHint(''); this.dirtyForces = true; } else if (this.dossier) this.closeDossier(); else this.menu(); }
     else if ((e.key === 'f' || e.key === 'F') && this.selUnit) g.focusLL(this.selUnit.ll, 1.6);
   }

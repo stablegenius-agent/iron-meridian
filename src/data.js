@@ -166,6 +166,20 @@ export const STANCE_STYLE = {
   controlled: { fill: '#15503a', border: 'rgba(110,255,180,0.8)', label: 'US CONTROLLED' },
 };
 
+export const MEDALS = {
+  first_blood: ['⚔', 'First Blood', 'Destroyed your first target.'],
+  hearts: ['✚', 'Hearts and Minds', 'Delivered humanitarian aid.'],
+  shield: ['⛨', 'Iron Umbrella', 'Intercepted an enemy missile.'],
+  hostages: ['✠', 'Nobody Left Behind', 'Rescued hostages with a special-ops raid.'],
+  rods: ['☄', 'Rods from God', 'Called down an orbital kinetic strike.'],
+  blackout: ['⚡', 'Lights Out', 'Blacked out an enemy power grid.'],
+  dismantled: ['☠', 'Network Dismantled', 'Eliminated every cell of a faction.'],
+  kingmaker: ['▲', 'Kingmaker', 'Secured an entire country.'],
+  crisis_master: ['★', 'Crisis Manager', 'Resolved five crises.'],
+  peacemaker: ['☮', 'Peacemaker', 'Brought the world back from the brink (tension 60+ to 25).'],
+  untouchable: ['◈', 'Untouchable', 'Fifteen operations without losing a unit.'],
+};
+
 export const RANKS = [
   [1400, 'S', 'Five-Star Legend'], [1000, 'A', 'Supreme Commander'], [650, 'B', 'Respected General'],
   [350, 'C', 'Adequate Steward'], [0, 'D', 'Quietly Reassigned'], [-1e9, 'F', 'Court-Martialed'],

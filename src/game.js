@@ -1,6 +1,6 @@
 // Game orchestrator: time, simulation ticks, crises, enemy AI, input, camera, persistence.
 import * as THREE from 'three';
-import { BASES, CRISES, FACTIONS, RANKS, ROSTER, SANDBOX_EXTRA, SITE_TYPES, STANCE_STYLE, UNIT_TYPES } from './data.js';
+import { BASES, CRISES, FACTIONS, MEDALS, RANKS, ROSTER, SANDBOX_EXTRA, SITE_TYPES, STANCE_STYLE, UNIT_TYPES } from './data.js';
 import { GLOBE_R, distanceKm, llToVec3, makeRng, slerpUnit, vec3ToLL } from './geo.js';
 import { SeaNav } from './nav.js';
 import { World } from './world.js';
@@ -54,6 +54,8 @@ export class Game {
     this.nextCrisisAt = 10;
     this.defcon1Since = -1;
     this.log = { ops: 0, sitesDestroyed: 0, cellsDestroyed: 0, crisesWon: 0, crisesLost: 0, unitsLost: 0, collateral: 0, controlled: 0, aid: 0 };
+    this.medals = [];
+    this.peakTension = 0;
     this.lastHour = Math.floor(this.time);
     this.over = false;
 
@@ -109,6 +111,7 @@ export class Game {
     }
 
     for (const u of this.units) u.update(gdt, run ? dt : 0, this.viewScale);
+    this._selectionRing(dt);
     this._updateEnemyVisuals(dt);
     while (this.lastHour < Math.floor(this.time)) {
       this.lastHour++;
@@ -123,6 +126,71 @@ export class Game {
 
   after(sec, fn) { this.timers.push({ left: sec, fn }); }
 
+  /** Dashed route previews from each unit to the target while an operation is being planned. */
+  setPreview(units, targetLL) {
+    if (!this.previewGroup) { this.previewGroup = new THREE.Group(); this.scene.add(this.previewGroup); }
+    for (const l of this.previewGroup.children) { l.geometry.dispose(); l.material.dispose(); }
+    this.previewGroup.clear();
+    if (!units?.length || !targetLL) return;
+    const b = llToVec3(targetLL[0], targetLL[1], 1).normalize();
+    for (const u of units) {
+      if (u.cls === 'cyber') continue;
+      const a = u.cls === 'space' ? u.worldPos().clone().normalize() : llToVec3(u.ll[0], u.ll[1], 1).normalize();
+      const peak = u.cls === 'naval' ? 0.004 : u.cls === 'space' ? 0.2 : 0.03;
+      const pts = [];
+      for (let i = 0; i <= 40; i++) {
+        const p = slerpUnit(a, b, i / 40, new THREE.Vector3()).normalize();
+        pts.push(p.multiplyScalar(GLOBE_R + 0.002 + peak * Math.sin(Math.PI * i / 40)));
+      }
+      const geo = new THREE.BufferGeometry().setFromPoints(pts);
+      const line = new THREE.Line(geo, new THREE.LineDashedMaterial({ color: u.cls === 'naval' ? 0x7fd8ff : 0xffe28a, dashSize: 0.012, gapSize: 0.01, transparent: true, opacity: 0.85, depthWrite: false }));
+      line.computeLineDistances();
+      this.previewGroup.add(line);
+    }
+  }
+
+  _selectionRing(dt) {
+    if (!this.selRing) {
+      this.selRing = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 40), new THREE.MeshBasicMaterial({ color: 0x66e0ff, transparent: true, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+      this.scene.add(this.selRing);
+    }
+    const u = this.ui.selUnit;
+    this.selRing.visible = !!u && u.state !== 'lost' && u.cls !== 'cyber';
+    if (!this.selRing.visible) return;
+    const p = u.worldPos();
+    if (u.cls === 'air' && !u.obj?.visible) llToVec3(u.ll[0], u.ll[1], GLOBE_R * 1.002, p);
+    this.selRing.position.copy(p);
+    this.selRing.lookAt(p.clone().multiplyScalar(2));
+    const pulse = 1 + 0.25 * Math.sin(performance.now() / 180);
+    this.selRing.scale.setScalar(0.022 * this.viewScale * pulse);
+    this.selRing.material.opacity = 0.9;
+  }
+
+  _ambient(h) {
+    // Enemy air forces fly patrols over their own territory so the world feels alive.
+    if (h % 2) return;
+    const w = this.world;
+    const fliers = w.countries.filter(c => (c.stance === 'hostile' || c.stance === 'rival') && c.air > 20);
+    if (!fliers.length) return;
+    const c = fliers[Math.floor(this.rng() * fliers.length)];
+    const bases = w.sites.filter(s => s.ci === c.i && s.alive && s.type === 'air');
+    const from = bases.length ? bases[0].ll : w.pointIn(c);
+    const to = w.pointIn(c, 1.2);
+    const jet = this.models.create('fighter', c.stance === 'rival' ? 'rival' : 'hostile', 0.018 * this.viewScale);
+    this.fx.projectile(llToVec3(from[0], from[1], GLOBE_R * 1.001), llToVec3(to[0], to[1], GLOBE_R * 1.001),
+      { peak: 0.025, duration: 4 + this.rng() * 3, color: 0xff8070, model: jet });
+  }
+
+  medal(id) {
+    if (!MEDALS[id] || this.medals.includes(id)) return;
+    this.medals.push(id);
+    const [icon, name, desc] = MEDALS[id];
+    this.score += 40;
+    this.toast(`${icon} COMMENDATION · ${name.toUpperCase()}`, 'good');
+    this.feed(`Commendation awarded: ${name} — ${desc} (+40)`, 'good');
+    this.after(0.8, () => this.audio.say(`Commendation. ${name}.`));
+  }
+
   // ====================================================================== simulation
   _tickHour(h) {
     const w = this.world;
@@ -132,7 +200,14 @@ export class Game {
         const c = w.countries[u.task?.ci];
         if (u.task?.op === 'campaign' && c && this.time >= u.nextSortie) {
           u.nextSortie = this.time + (u.type === 'bomber' ? 6 : u.type === 'drone' ? 3 : 4);
-          if (!campaignSortie(this, u, c)) { u.loiterUntil = this.time; this.feed(`Air campaign over ${c.name}: no targets left.`, 'good'); }
+          if (!campaignSortie(this, u, c)) {
+            u.loiterUntil = this.time;
+            if (!c.campaignDoneMsg || this.time - c.campaignDoneMsg > 24) {
+              c.campaignDoneMsg = this.time;
+              const hidden = this.world.sitesOf(c).filter(s => s.alive && !this.world.visible(s)).length;
+              this.feed(`Air campaign over ${c.name}: all known targets destroyed.${hidden ? ` ${hidden} signature(s) still hidden — run Recon.` : ''}`, 'good');
+            }
+          }
         }
         if (this.time >= u.loiterUntil) { u.orbitCenter = null; u.returnHome(); this.ui.dirtyForces = true; }
       }
@@ -183,6 +258,11 @@ export class Game {
     if (this.tension > 55 && this.rng() < (this.tension - 50) / 2400) this.spawnCrisis('rivalfleet');
     // hostile retaliation against forces on their doorstep
     if (h % 3 === 0) this._enemyActivity();
+    if (this.speed <= 3) this._ambient(h);
+    this.peakTension = Math.max(this.peakTension, this.tension);
+    if (this.peakTension >= 60 && this.tension <= 25) this.medal('peacemaker');
+    if (this.log.ops >= 15 && this.log.unitsLost === 0) this.medal('untouchable');
+    if (this.log.crisesWon >= 5) this.medal('crisis_master');
     this.ui.dirtyTop = true;
   }
 
@@ -256,12 +336,15 @@ export class Game {
     if (faction) this.log.cellsDestroyed++;
     const pts = s.type === 'hostage' ? 0 : faction ? 30 : 15;
     this.score += pts;
+    if (s.type !== 'hostage') this.medal('first_blood');
+    if (s.type === 'hostage' && how === 'raid') this.medal('hostages');
+    if (u?.type === 'orbital') this.medal('rods');
     if (u) u.kills++;
     this.fx.popup(llToVec3(s.ll[0], s.ll[1], GLOBE_R * 1.01), `${s.name.toUpperCase()} DESTROYED`, 'controlled');
     if (s.type !== 'hostage') this.feed(`${s.name} in ${c.name} destroyed${u ? ` by ${u.name}` : ''}.`, 'good');
     if (faction) {
       const f = this.world.factions.find(x => x.id === s.faction);
-      if (f) { f.strength = clamp(f.strength - 14, 0, 100); if (f.cells.every(x => !x.alive)) { this.ui.alert(`${f.name.toUpperCase()} DISMANTLED`, 'Network eliminated'); this.score += 120; this.approval += 5; this.audio.success(); } }
+      if (f) { f.strength = clamp(f.strength - 14, 0, 100); if (f.cells.every(x => !x.alive)) { this.ui.alert(`${f.name.toUpperCase()} DISMANTLED`, 'Network eliminated', 'good'); this.score += 120; this.approval += 5; this.audio.success(); this.medal('dismantled'); } }
     }
     // crisis resolution hooks
     this.resolveCrisisWhere(cr => cr.siteId === s.id && !(cr.type === 'hostage' && how !== 'raid'), how === 'raid' && s.type === 'hostage' ? 'Hostages rescued' : 'Threat neutralized');
@@ -303,7 +386,8 @@ export class Game {
     this.score += 80 + Math.round(c.base.mil);
     this.approval += 4;
     this.addTension(c.stance === 'rival' ? 15 : 4);
-    this.ui.alert(`${c.name.toUpperCase()} SECURED`, 'US forces control the country');
+    this.ui.alert(`${c.name.toUpperCase()} SECURED`, 'US forces control the country', 'good');
+    this.medal('kingmaker');
     this.audio.success();
     this.resolveCrisisWhere(cr => cr.data?.aggressor === c.i, 'Aggressor neutralized');
     this.ui.refreshLabels();
@@ -385,6 +469,7 @@ export class Game {
               this.fx.explosion(meet, 1.4, 0x9fe8ff);
               this.fx.popup(meet, 'INTERCEPTED', 'ally');
               this.score += 20;
+              this.medal('shield');
               d.kills++;
             } });
           });
@@ -654,7 +739,7 @@ export class Game {
       const o = this.models.create('base', 'us', 1);
       const p = llToVec3(b.ll[0], b.ll[1], GLOBE_R * 1.0004);
       o.position.copy(p); o.up.copy(p).normalize(); o.lookAt(llToVec3(b.ll[0] + 1, b.ll[1], GLOBE_R * 1.0004));
-      o.userData.baseSize = 0.02;
+      o.userData.baseSize = 0.011;
       this.unitLayer.add(o);
       return o;
     });
@@ -677,7 +762,10 @@ export class Game {
 
   _onWorld(ev, d) {
     if (ev === 'site' && this.started) this._siteVisual(d);
-    if (ev === 'stance' && this.started) { for (const s of this.world.sitesOf(d.c)) this._siteVisual(s); }
+    if (ev === 'stance' && this.started) {
+      for (const s of this.world.sitesOf(d.c)) this._siteVisual(s);
+      if (this.ui.dossier?.c === d.c) this.ui.renderDossier();
+    }
   }
 
   _updateEnemyVisuals(dt) {
@@ -860,6 +948,7 @@ export class Game {
     const data = {
       v: 1, mode: this.mode, difficulty: this.difficulty, seed: this.seed,
       time: this.time, budget: this.budget, approval: this.approval, tension: this.tension, score: this.score, log: this.log,
+      medals: this.medals, peakTension: this.peakTension,
       countries: w.countries.map(c => [c.stance, Math.round(c.intel), Math.round(c.base.mil * 10) / 10, Math.round(c.stability), Math.round(c.control), Math.round(c.aggression)]),
       sites: w.sites.map(s => ({ type: s.type, ci: s.ci, ll: s.ll, hp: s.hp, alive: s.alive, faction: s.faction, name: s.name })),
       units: this.units.map(u => ({ cs: u.callsign, state: u.state === 'lost' ? 'lost' : 'ready', readyAt: u.readyAt, hp: u.hp, kills: u.kills, ll: u.cls === 'naval' ? u.ll : null })),
@@ -873,7 +962,8 @@ export class Game {
 
   _applySave(d) {
     const w = this.world;
-    Object.assign(this, { time: d.time, budget: d.budget, approval: d.approval, tension: d.tension, score: d.score, log: d.log });
+    Object.assign(this, { time: d.time, budget: d.budget, approval: d.approval, tension: d.tension, score: d.score, log: d.log,
+      medals: d.medals || [], peakTension: d.peakTension || 0 });
     this.lastHour = Math.floor(this.time);
     this.nextCrisisAt = this.time + 6;
     d.countries.forEach(([stance, intel, mil, stab, control, agg], i) => {

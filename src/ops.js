@@ -278,10 +278,11 @@ export function resolve(game, u, opKey, c, site, est, at) {
     const ad = c.ad / 100, air = c.air / 100;
     const escort = game.units.some(f => f.type === 'fighter' && f.task?.ci === c.i && f.state === 'onstation') ? 0.45 : 1;
     const p = (ad * 0.38 + air * 0.22 * escort) * (1 - (u.t.stealth || 0)) * game.difficulty * (opKey === 'recon' ? 0.4 : 1);
-    if (air > 0.15) game.fx.tracers(pos.clone().multiplyScalar(1.02), u.worldPos(), 0xff7060, 5, 0.5);
-    if (rng() < p) {
-      game.unitLost(u, `shot down over ${c.name}`);
-      game.fx.explosion(u.worldPos(), 1.2, 0xff6040);
+    const shotDown = rng() < p;
+    airDefenseShow(game, c, u, shotDown);
+    if (shotDown) {
+      // The kill lands when the SAM/interceptor arrives; the strike is lost with the aircraft.
+      game.after(1.3, () => game.unitLost(u, `shot down over ${c.name}`));
       return;
     }
   }
@@ -304,6 +305,8 @@ export function resolve(game, u, opKey, c, site, est, at) {
       c.stability = clamp(c.stability + 15, 0, 100);
       game.score += 25;
       game.fx.popup(pos, 'AID DELIVERED', 'controlled');
+      game.log.aid++;
+      game.medal('hearts');
       game.fx.sprite(pos, 0x4dffa6, 0.04, 1.5);
       game.resolveCrisisWhere(cr => cr.type === 'disaster' && cr.ci === c.i, 'Aid delivered');
       if (c.stance === 'neutral' && c.relation > 50 && rng() < 0.5) { game.world.setStance(c, 'ally', true); game.feed(`${c.name} joins the coalition, grateful for US aid.`, 'good'); game.ui.refreshLabels(); }
@@ -315,7 +318,7 @@ export function resolve(game, u, opKey, c, site, est, at) {
       break;
     }
     case 'cyber_grid': {
-      if (rng() < est.success) { c.gridDownUntil = game.time + 48; c.stability -= 10; game.world.recompute(c, game.time); game.fx.popup(pos, 'GRID DOWN', 'controlled'); game.feed(`${c.name}'s power grid collapses. Military logistics crippled.`, 'good'); game.globeFlash(c); }
+      if (rng() < est.success) { c.gridDownUntil = game.time + 48; c.stability -= 10; game.world.recompute(c, game.time); game.fx.popup(pos, 'GRID DOWN', 'controlled'); game.feed(`${c.name}'s power grid collapses. Military logistics crippled.`, 'good'); game.globeFlash(c); game.medal('blackout'); }
       else { game.fx.popup(pos, 'ATTACK FAILED', 'hostile'); game.feed(`Grid attack on ${c.name} failed.`, 'bad'); }
       break;
     }
@@ -353,6 +356,38 @@ export function resolve(game, u, opKey, c, site, est, at) {
       }
       break;
     }
+  }
+}
+
+/** Visualize the enemy's air defense reacting: SAM launches from live SAM sites, interceptors from air bases. */
+function airDefenseShow(game, c, u, kill) {
+  const w = game.world;
+  const tgt = u.worldPos();
+  const sams = w.sites.filter(s => s.ci === c.i && s.alive && s.type === 'ad');
+  const bases = w.sites.filter(s => s.ci === c.i && s.alive && s.type === 'air');
+  const adOn = c.adDownUntil <= game.time;
+  let fired = false;
+  if (sams.length && adOn && c.ad > 8) {
+    const s = sams[Math.floor(game.rng() * sams.length)];
+    const from = llToVec3(s.ll[0], s.ll[1], GLOBE_R * 1.002);
+    const miss = tgt.clone().add(new THREE.Vector3().randomDirection().multiplyScalar(0.01));
+    game.audio.launchMissile();
+    game.fx.projectile(from, kill ? tgt : miss, { peak: 0.015, duration: 1.2, color: 0xffffff, width: 0.6, onHit: (p) => {
+      game.fx.explosion(p, kill ? 1.3 : 0.5, kill ? 0xff6040 : 0xffffff);
+      if (!kill) game.fx.popup(p, 'EVADED', 'ally');
+    } });
+    fired = true;
+  }
+  if (bases.length && c.air > 15 && (!fired || game.rng() < 0.5)) {
+    const b = bases[Math.floor(game.rng() * bases.length)];
+    const from = llToVec3(b.ll[0], b.ll[1], GLOBE_R * 1.002);
+    const jet = game.models.create('fighter', c.stance === 'rival' ? 'rival' : 'hostile', 0.02 * game.viewScale);
+    game.fx.projectile(from, tgt, { peak: 0.02, duration: 1.1, color: 0xff7060, model: jet, onHit: (p) => {
+      game.fx.tracers(p, tgt, 0xffd27a, 6, 0.5);
+      game.audio.gunfire();
+      // the escorts or the target win the merge if this wasn't a kill
+      if (!kill) game.after(0.3, () => { game.fx.explosion(p, 0.9, 0xff5040); game.fx.popup(p, 'BANDIT DOWN', 'ally'); game.score += 5; });
+    } });
   }
 }
 

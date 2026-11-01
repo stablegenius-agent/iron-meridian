@@ -23,7 +23,7 @@ export class World {
   _initCountry(d, i) {
     const power = Math.log10(Math.max(2000, d.gdp));       // ~3.3 .. 7.4
     const mil = clamp((power - 3.2) * 23 + this.rng() * 8, 4, 100);
-    const station = this.nav.stationFor(d);
+    const station = this.nav.stationFor(d); // uses d.polys to find a real coastline
     return {
       i, id: d.id, name: d.name, ll: d.label, pop: d.pop, gdp: d.gdp, area: d.area, region: d.region, continent: d.continent,
       stance: 'neutral', coastal: !!station, station,
