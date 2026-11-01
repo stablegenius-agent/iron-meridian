@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IRON MERIDIAN — Global Command</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='none' stroke='%2366e0ff' stroke-width='3'/><path d='M16 3v26M3 16h26' stroke='%2366e0ff' stroke-width='2'/></svg>">
+  <link rel="stylesheet" href="src/style.css">
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }
+  </script>
+</head>
+<body>
+  <canvas id="view"></canvas>
+  <div id="labels"></div>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <header id="topbar">
+      <div class="brand"><span class="logo">◈</span> IRON MERIDIAN <small>GLOBAL COMMAND</small></div>
+      <div class="clock">
+        <div id="date">DAY 1 · 06:00Z</div>
+        <div class="speeds">
+          <button data-speed="0" title="Pause (Space)">❚❚</button>
+          <button data-speed="1" class="on" title="1× (1)">▶</button>
+          <button data-speed="3" title="3× (2)">▶▶</button>
+          <button data-speed="8" title="8× (3)">▶▶▶</button>
+        </div>
+      </div>
+      <div class="stat" id="stat-defcon" title="Defense readiness. DEFCON 1 sustained for 48h = global war.">
+        <label>DEFCON</label><div class="defcon"><i></i><i></i><i></i><i></i><i></i></div>
+      </div>
+      <div class="stat" title="World tension: rises with aggression, falls with diplomacy and aid."><label>TENSION</label><div class="bar"><b id="tension-bar"></b></div><span id="tension-val">0</span></div>
+      <div class="stat" title="Domestic approval: falls with losses, collateral damage and failed crises."><label>APPROVAL</label><div class="bar good"><b id="approval-bar"></b></div><span id="approval-val">0</span></div>
+      <div class="stat" title="Operational budget (billions). Income arrives daily, scaled by approval."><label>BUDGET</label><span class="big" id="budget-val">$0B</span></div>
+      <div class="stat"><label>SCORE</label><span class="big" id="score-val">0</span></div>
+      <div class="menu-btns">
+        <button id="btn-help" title="Field manual (H)">?</button>
+        <button id="btn-menu" title="Menu (Esc)">☰</button>
+      </div>
+    </header>
+
+    <aside id="forces" class="panel">
+      <h2>FORCES <span id="forces-count"></span></h2>
+      <div class="tabs" id="force-tabs"></div>
+      <div id="force-list" class="scroll"></div>
+    </aside>
+
+    <aside id="dossier" class="panel hidden">
+      <button class="close" id="dossier-close">✕</button>
+      <div id="dossier-body"></div>
+    </aside>
+
+    <section id="crises"></section>
+    <section id="feed" class="panel"><h2>COMMS</h2><div id="feed-list" class="scroll"></div></section>
+    <div id="toasts"></div>
+    <div id="alert" class="hidden"></div>
+    <div id="hint"></div>
+  </div>
+
+  <!-- Screens -->
+  <div id="screen-title" class="screen">
+    <div class="title-wrap">
+      <div class="kicker">CLASSIFIED // EYES ONLY</div>
+      <h1>IRON MERIDIAN</h1>
+      <div class="sub">GLOBAL COMMAND</div>
+      <p class="pitch">You are the Theater Commander. Every battalion, squadron, fleet, cyber cell and orbital
+        asset answers to you. The world is unstable. Keep it that way — or don't.</p>
+      <div class="modes">
+        <button class="mode" data-mode="campaign"><b>CAMPAIGN</b><span>60 days. Budget, approval, escalation. Earn your rank.</span></button>
+        <button class="mode" data-mode="sandbox"><b>UNRESTRICTED</b><span>Unlimited budget, no failure. Every asset, every target.</span></button>
+      </div>
+      <div class="opts">
+        <label>Difficulty <select id="opt-diff"><option value="0.8">Analyst</option><option value="1" selected>Commander</option><option value="1.3">Joint Chiefs</option></select></label>
+        <label>Quality <select id="opt-quality"><option value="auto" selected>Auto</option><option value="high">High</option><option value="low">Performance</option></select></label>
+        <button id="btn-continue" class="hidden">Continue saved campaign</button>
+      </div>
+      <div class="loading" id="loading">Establishing secure uplink…</div>
+    </div>
+  </div>
+
+  <div id="screen-modal" class="screen hidden"><div class="modal" id="modal-body"></div></div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
