@@ -24,6 +24,7 @@ export class Globe {
     this._buildMesh();
     this._buildAtmosphere();
     this._buildStars();
+    this._buildBorders();
     this.outline = new THREE.Group();
     this.group.add(this.outline);
   }
@@ -114,15 +115,18 @@ export class Globe {
       ctx.fillStyle = this.styles[i].fill;
       ctx.fill('evenodd');
     });
-    // Borders in a second pass so neighbours never paint over each other's edge.
+    // A soft glow under the vector borders (the crisp lines themselves are LineSegments).
+    ctx.globalAlpha = 0.5;
     this.world.countries.forEach((c, i) => {
       ctx.beginPath();
       for (const poly of c.polys) this._path(ctx, poly, COLOR_W, COLOR_H);
       ctx.strokeStyle = this.styles[i].border;
-      ctx.lineWidth = 1.6;
+      ctx.lineWidth = 3;
       ctx.stroke();
     });
+    ctx.globalAlpha = 1;
     this.colorTex.needsUpdate = true;
+    this.updateBorderColors();
   }
 
   _buildLights() {
@@ -258,6 +262,44 @@ export class Globe {
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     this.stars = new THREE.Points(geo, new THREE.PointsMaterial({ size: 1.6, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: 0.8 }));
     this.scene.add(this.stars);
+  }
+
+  /** Every country outline as one LineSegments draw call: crisp at any zoom, recolored per stance. */
+  _buildBorders() {
+    const pos = [], owner = [];
+    const v = new THREE.Vector3();
+    this.world.countries.forEach((c, i) => {
+      for (const poly of c.polys) for (const ring of poly) {
+        for (let k = 0; k < ring.length - 1; k++) {
+          llToVec3(ring[k][0], ring[k][1], GLOBE_R * 1.0007, v); pos.push(v.x, v.y, v.z);
+          llToVec3(ring[k + 1][0], ring[k + 1][1], GLOBE_R * 1.0007, v); pos.push(v.x, v.y, v.z);
+          owner.push(i, i);
+        }
+      }
+    });
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    this.borderCol = new Float32Array(owner.length * 3);
+    geo.setAttribute('color', new THREE.BufferAttribute(this.borderCol, 3));
+    this.borderOwner = owner;
+    this.borders = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false }));
+    this.group.add(this.borders);
+    this.updateBorderColors();
+  }
+
+  updateBorderColors() {
+    if (!this.borderCol) return;
+    const col = new THREE.Color();
+    const cache = this.styles.map(s => {
+      const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?/.exec(s.border);
+      if (!m) return [0.4, 0.7, 0.8];
+      const a = m[4] !== undefined ? parseFloat(m[4]) : 1;
+      col.setRGB(m[1] / 255 * a, m[2] / 255 * a, m[3] / 255 * a, THREE.SRGBColorSpace);
+      return [col.r, col.g, col.b];
+    });
+    const o = this.borderOwner;
+    for (let k = 0; k < o.length; k++) this.borderCol.set(cache[o[k]], k * 3);
+    this.borders.geometry.attributes.color.needsUpdate = true;
   }
 
   // ------------------------------------------------------------------ interaction

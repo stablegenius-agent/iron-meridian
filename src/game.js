@@ -1,6 +1,6 @@
 // Game orchestrator: time, simulation ticks, crises, enemy AI, input, camera, persistence.
 import * as THREE from 'three';
-import { BASES, CRISES, FACTIONS, MEDALS, RANKS, ROSTER, SANDBOX_EXTRA, SITE_TYPES, STANCE_STYLE, UNIT_TYPES } from './data.js';
+import { BASES, CRISES, FACTIONS, MEDALS, PROCURE, RANKS, ROSTER, SANDBOX_EXTRA, SITE_TYPES, STANCE_STYLE, UNIT_TYPES } from './data.js';
 import { GLOBE_R, distanceKm, llToVec3, makeRng, slerpUnit, vec3ToLL } from './geo.js';
 import { SeaNav } from './nav.js';
 import { World } from './world.js';
@@ -45,7 +45,8 @@ export class Game {
     this.rng = makeRng(seed);
     this.time = 6;
     this.nextOpId = 1;
-    this.budget = this.sandbox ? Infinity : 60;
+    this.budget = this.sandbox ? Infinity : 45;
+    this.procured = [];
     this.approval = 62;
     this.tension = 22;
     this.score = 0;
@@ -242,8 +243,10 @@ export class Game {
     for (const cr of [...this.crises]) this._crisisTick(cr);
     if (this.time >= this.nextCrisisAt) {
       this.spawnCrisis();
-      const pace = this.sandbox ? 30 : 36;
-      this.nextCrisisAt = this.time + (pace + this.rng() * 30) / (0.7 + this.tension / 120) / this.difficulty;
+      // Threat surges: occasionally two crises hit at once, more often as the campaign wears on.
+      if (this.rng() < 0.1 + this.day / 200) this.after(3, () => this.spawnCrisis());
+      const ramp = (0.85 + this.day / 40) * (0.9 + this.tension / 160) * this.difficulty;
+      this.nextCrisisAt = this.time + (18 + this.rng() * 22) / ramp;
     }
     // escalation watchdog
     if (this.tension >= 80) {
@@ -255,7 +258,7 @@ export class Game {
     this.approval = clamp(this.approval, 0, 100);
     if (!this.sandbox && this.approval <= 10 && !this.over) return this._lose('RELIEVED OF COMMAND', 'Domestic approval collapsed. The President has accepted your resignation.');
     // rivals poke at you when tension is high
-    if (this.tension > 55 && this.rng() < (this.tension - 50) / 2400) this.spawnCrisis('rivalfleet');
+    if (this.tension > 60 && this.rng() < (this.tension - 55) / 4000) this.spawnCrisis('rivalfleet');
     // hostile retaliation against forces on their doorstep
     if (h % 3 === 0) this._enemyActivity();
     if (this.speed <= 3) this._ambient(h);
@@ -269,12 +272,12 @@ export class Game {
   _tickDay() {
     const day = this.day;
     if (!this.sandbox) {
-      const income = 7 + this.approval * 0.12 + this.world.countries.filter(c => c.stance === 'controlled').length * 2;
+      const income = 4 + this.approval * 0.08 + this.world.countries.filter(c => c.stance === 'controlled').length * 2.5;
       this.budget += income;
       this.feed(`Day ${day}: budget +$${income.toFixed(1)}B.`, '');
     }
     // drift: the world cools off if you let it
-    this.addTension(-(2.5 + (this.tension > 60 ? 1.5 : 0)));
+    this.addTension(-(2.5 + (this.tension > 60 ? 3 : 0)));
     this.approval += (55 - this.approval) * 0.04;
     const occupations = this.world.countries.filter(c => c.stance === 'controlled').length;
     const invasions = new Set(this.units.filter(u => u.task?.op === 'invade').map(u => u.task.ci)).size;
@@ -511,8 +514,16 @@ export class Game {
   spawnCrisis(type) {
     const w = this.world, rng = this.rng;
     if (this.crises.length >= (this.sandbox ? 6 : 5)) return;
-    const types = Object.keys(CRISES);
-    type = type || types[Math.floor(rng() * types.length)];
+    if (!type) {
+      // Weighted by the state of the world: strong networks plot, aggressive regimes invade.
+      const fac = (id) => (this.world.factions.find(f => f.id === id)?.strength || 0) / 50;
+      const aggr = w.countries.filter(c => c.stance === 'hostile').reduce((a, c) => a + c.aggression, 0) / 300;
+      const weights = { plot: 1.2 * (fac('lotus') + fac('veil')) / 2 + 0.3, hostage: 0.8, missile: 0.7 + aggr * 0.5, pirates: 0.6 * fac('tide') + 0.2,
+        cyber: 0.6 * fac('null') + 0.2, invasion: 0.3 + aggr, disaster: 0.7, rivalfleet: 0.15 + this.tension / 140 };
+      let r = rng() * Object.values(weights).reduce((a, b) => a + b, 0);
+      for (const [k, wt] of Object.entries(weights)) { r -= wt; if (r <= 0) { type = k; break; } }
+      type = type || 'plot';
+    }
     const def = CRISES[type];
     const pick = (arr) => arr[Math.floor(rng() * arr.length)];
     const cr = { id: this.crisisSeq++, type, title: def.title, start: this.time, end: this.time + def.hours * (this.sandbox ? 1.4 : 1) / Math.sqrt(this.difficulty), data: {} };
@@ -631,7 +642,7 @@ export class Game {
     if (cr.resolved) return;
     cr.resolved = true;
     const def = CRISES[cr.type];
-    const speedBonus = Math.round(def.reward * 0.5 * clamp((cr.end - this.time) / (cr.end - cr.start), 0, 1));
+    const speedBonus = Math.round(def.reward * 0.3 * clamp((cr.end - this.time) / (cr.end - cr.start), 0, 1));
     const pts = def.reward + speedBonus;
     this.score += pts;
     this.approval += def.reward / 14;
@@ -793,6 +804,50 @@ export class Game {
     return execute(this, opKey, c, site, units);
   }
 
+  /** Back-channel diplomacy with a hostile or rival state: buys down tension at a political price. */
+  talks(c) {
+    const cost = 6;
+    if (this.time < (this.talksReadyAt || 0)) { this.toast(`Diplomats busy — ${Math.ceil(this.talksReadyAt - this.time)}h`, 'warn'); return false; }
+    if (!this.sandbox && this.budget < cost) { this.toast('Insufficient budget', 'bad'); return false; }
+    this.budget -= this.sandbox ? 0 : cost;
+    this.talksReadyAt = this.time + 36;
+    const rival = c.stance === 'rival';
+    this.addTension(rival ? -14 : -8);
+    this.approval -= this.sandbox ? 0 : 2;
+    c.aggression = clamp(c.aggression - 25, 0, 100);
+    c.relation += 15;
+    c.struck = Math.max(0, (c.struck || 0) - 1);
+    this.ui.alert('BACK-CHANNEL TALKS', `${c.name} agrees to de-escalate`, 'info');
+    this.feed(`Back-channel talks with ${c.name}: tension eases. Hawks at home call it weakness (-2 approval).`, 'info');
+    this.audio.success();
+    if (this.tension <= 25 && this.peakTension >= 60) this.medal('peacemaker');
+    return true;
+  }
+
+  /** Buy a new unit; it appears at a suitable base after its delivery time. */
+  procure(type) {
+    const p = PROCURE[type];
+    if (!p || this.over) return false;
+    if (!this.sandbox && this.budget < p.price) { this.toast('Insufficient budget', 'bad'); this.audio.fail(); return false; }
+    const used = new Set(this.units.map(u => u.callsign));
+    const cs = p.names.find(n => !used.has(n)) || `${UNIT_TYPES[type].short}-${this.units.length + 1}`;
+    const bases = this.bases.filter(b => b.kind === p.at || (p.at === 'air' && b.kind === 'air'));
+    const base = bases[Math.floor(this.rng() * bases.length)] || this.bases[0];
+    this.budget -= this.sandbox ? 0 : p.price;
+    const u = new Unit(this, type, base, cs);
+    const hours = this.sandbox ? p.hours * 0.25 : p.hours;
+    u.state = 'delivering';
+    u.readyAt = this.time + hours;
+    if (u.obj && u.cls === 'naval') u.obj.visible = false;
+    this.units.push(u);
+    this.procured.push([type, base.id, cs]);
+    this.feed(`Procured ${UNIT_TYPES[type].name} ${cs} — delivery to ${base.name} in ${Math.round(hours)}h.`, 'info');
+    this.audio.confirm();
+    this.ui.dirtyForces = true;
+    this.ui.dirtyTop = true;
+    return true;
+  }
+
   recall(u) {
     if (u.state === 'lost') return;
     if (u.cls === 'ground' && u.task?.op === 'invade') this.feed(`${u.name} withdrawing from ${this.world.countries[u.task.ci].name}.`, 'warn');
@@ -845,6 +900,8 @@ export class Game {
       if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return;
       if (!this.started) return;
       this.audio.init();
+      const hit = this._pickUnit(e.clientX, e.clientY);
+      if (hit) { this.ui.selectUnit(hit); return; }
       const i = this._pickCountry();
       if (i >= 0) {
         const c = this.world.countries[i];
@@ -860,6 +917,22 @@ export class Game {
       if (ll) this.focusLL(ll, Math.max(1.45, this.camera.position.length() * 0.7));
     });
     addEventListener('keydown', e => this.ui.key(e));
+  }
+
+  /** Nearest visible friendly unit within 16px of the cursor (models are too small for mesh raycasts). */
+  _pickUnit(x, y) {
+    const camDir = this.camera.position.clone().normalize();
+    let best = null, bd = 16;
+    const v = new THREE.Vector3();
+    for (const u of this.units) {
+      if (!u.obj || !u.obj.visible || u.state === 'lost') continue;
+      u.obj.getWorldPosition(v);
+      if (v.clone().normalize().dot(camDir) < 0.1) continue;
+      v.project(this.camera);
+      const d = Math.hypot((v.x * 0.5 + 0.5) * innerWidth - x, (-v.y * 0.5 + 0.5) * innerHeight - y);
+      if (d < bd) { bd = d; best = u; }
+    }
+    return best;
   }
 
   _pickLL() {
@@ -948,7 +1021,7 @@ export class Game {
     const data = {
       v: 1, mode: this.mode, difficulty: this.difficulty, seed: this.seed,
       time: this.time, budget: this.budget, approval: this.approval, tension: this.tension, score: this.score, log: this.log,
-      medals: this.medals, peakTension: this.peakTension,
+      medals: this.medals, peakTension: this.peakTension, procured: this.procured,
       countries: w.countries.map(c => [c.stance, Math.round(c.intel), Math.round(c.base.mil * 10) / 10, Math.round(c.stability), Math.round(c.control), Math.round(c.aggression)]),
       sites: w.sites.map(s => ({ type: s.type, ci: s.ci, ll: s.ll, hp: s.hp, alive: s.alive, faction: s.faction, name: s.name })),
       units: this.units.map(u => ({ cs: u.callsign, state: u.state === 'lost' ? 'lost' : 'ready', readyAt: u.readyAt, hp: u.hp, kills: u.kills, ll: u.cls === 'naval' ? u.ll : null })),
@@ -981,6 +1054,11 @@ export class Game {
       this._siteVisual(site);
     }
     for (const c of w.countries) w.recompute(c, this.time);
+    for (const [type, baseId, cs] of d.procured || []) {
+      const base = this.bases.find(b => b.id === baseId) || this.bases[0];
+      this.units.push(new Unit(this, type, base, cs));
+      this.procured.push([type, baseId, cs]);
+    }
     for (const su of d.units) {
       const u = this.units.find(x => x.callsign === su.cs);
       if (!u) continue;

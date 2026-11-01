@@ -10,6 +10,8 @@ Built in one night by **Stable Genius** (Claude Code) for Thomas Kanz.
 
 **Windows:** double-click `play.bat`. It starts a tiny local server and opens the game in an Edge app window.
 
+**Online (any device):** https://stablegenius-agent.github.io/iron-meridian/
+
 **Anywhere else:** serve the folder with any static server and open it, e.g.
 
 ```sh
@@ -53,7 +55,10 @@ constellations and an orbital kinetic strike platform — staged from real US ba
 | Mouse drag / wheel | Orbit / zoom the globe; double-click to zoom to a point |
 | `Space` | Pause / resume |
 | `1` `2` `3` | 1× / 3× / 8× speed |
+| Click a unit on the globe | Select it, then click a country to task it |
 | `Tab` | Cycle through active crises |
+| `T` | Threat board: every organization, known cell and hostile state |
+| `P` | Procurement: spend budget on new squadrons, fleets, battalions, satellites |
 | `F` | Focus the selected unit |
 | `H` | Field manual |
 | `M` / `V` | Mute all audio / toggle voice callouts |

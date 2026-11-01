@@ -1,6 +1,6 @@
 // DOM interface: HUD, forces roster, dossier/operation planner, crises, comms, labels, modals.
 import * as THREE from 'three';
-import { CLASSES, CRISES, MEDALS, OPS, SITE_TYPES, STANCE_STYLE, UNIT_TYPES } from './data.js';
+import { CLASSES, CRISES, MEDALS, OPS, PROCURE, SITE_TYPES, STANCE_STYLE, UNIT_TYPES } from './data.js';
 import { GLOBE_R, distanceKm, llToVec3 } from './geo.js';
 import { availableOps, eligibleUnits, estimate } from './ops.js';
 
@@ -70,6 +70,8 @@ export class UI {
     $('dossier-close').addEventListener('click', () => this.closeDossier());
     $('btn-help').addEventListener('click', () => this.help());
     $('btn-menu').addEventListener('click', () => this.menu());
+    $('btn-procure').addEventListener('click', () => this.procureMenu());
+    $('btn-threats').addEventListener('click', () => this.threatBoard());
     $('force-list').addEventListener('click', (e) => {
       const row = e.target.closest('[data-unit]');
       if (!row) return;
@@ -229,6 +231,10 @@ export class UI {
       const op = OPS[k];
       html += `<button class="op esc${Math.max(0, op.esc)} ${d.op === k ? 'on' : ''}" data-op="${k}"><b>${OP_ICON[k] || ''} ${op.name}</b><span>${op.desc}</span></button>`;
     }
+    if ((c.stance === 'hostile' || c.stance === 'rival') && !this.selUnit) {
+      const wait = Math.max(0, (g.talksReadyAt || 0) - g.time);
+      html += `<button class="op" data-talks="1" style="grid-column:1/3;border-left-color:var(--green)" ${wait ? 'disabled' : ''}><b>☮ Back-Channel Talks</b><span>${wait ? `Diplomats busy · ${Math.ceil(wait)}h` : `Tension −${c.stance === 'rival' ? 14 : 8} · −2 approval · ${g.sandbox ? 'free' : '$6B'} · 36h cooldown`}</span></button>`;
+    }
     if (c.stance !== 'home' && c.stance !== 'controlled' && !this.selUnit) html += `<button class="op warop" data-war="1"><b>☢ DECLARE WAR</b><span>Commit every available asset: cyber, air campaign, blockade, invasion.</span></button>`;
     html += `</div>`;
     this._preview = null;
@@ -322,6 +328,8 @@ export class UI {
       e.stopPropagation();
       const u = g.units.find(x => x.id === +b.dataset.recall); g.recall(u); this.renderDossier();
     }));
+    const talks = body.querySelector('[data-talks]');
+    if (talks) talks.addEventListener('click', () => { if (g.talks(d.c)) this.renderDossier(); });
     const war = body.querySelector('[data-war]');
     if (war) war.addEventListener('click', () => this.confirmWar(d.c));
     const clear = $('clear-unit');
@@ -419,8 +427,11 @@ export class UI {
     this.g.audio.say(spoken.charAt(0).toUpperCase() + spoken.slice(1), /missile|global war|defcon 1/i.test(title));
     const el = $('alert');
     el.classList.remove('hidden');
-    el.style.color = kind === 'good' ? 'var(--green)' : '';
-    el.style.borderColor = kind === 'good' ? 'var(--green)' : '';
+    const col = kind === 'good' ? 'var(--green)' : kind === 'info' ? 'var(--cyan)' : '';
+    el.style.color = col;
+    el.style.borderColor = col;
+    el.style.background = kind === 'info' ? 'rgba(0, 24, 40, .75)' : kind === 'good' ? 'rgba(0, 40, 20, .7)' : '';
+    el.style.boxShadow = kind === 'info' ? '0 0 40px rgba(102, 224, 255, .3)' : '';
     el.innerHTML = `${esc(title)}${sub ? `<small>${esc(sub)}</small>` : ''}`;
     el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
     clearTimeout(this._alertT);
@@ -468,6 +479,7 @@ export class UI {
     const g = this.g;
     if (!g.started) return;
     const sel = this.dossier?.c;
+    const perCountry = new Map();
     for (const s of g.world.sites) {
       if (!g.world.visible(s)) continue;
       const crisis = g.crises.find(cr => cr.siteId === s.id);
@@ -478,6 +490,10 @@ export class UI {
         llToVec3(s.ll[0], s.ll[1], GLOBE_R * 1.006), () => { this.openDossier(g.world.countries[s.ci], { site: s, op: SITE_TYPES[s.type].raidOnly ? 'raid' : 'strike' }); });
       L.minDist = crisis || isSel ? 9 : sel?.i === s.ci ? 3.2 : 2.2;
       L.el.style.borderColor = isSel ? '#fff' : '';
+      // stagger pins within a country so small states don't stack labels on top of each other
+      const n = perCountry.get(s.ci) || 0;
+      perCountry.set(s.ci, n + 1);
+      L.offsetY = (n % 6) * 15 - 10;
     }
     for (const cr of g.crises) {
       const s = cr.siteId ? g.world.sites.find(x => x.id === cr.siteId) : null;
@@ -506,6 +522,7 @@ export class UI {
       const visible = facing > 0.18 && camDist < (L.minDist ?? 99);
       if (!visible) { if (L.shown !== false) { L.el.style.display = 'none'; L.shown = false; } continue; }
       tmp.copy(L.pos).project(cam);
+      if (tmp.z > 1 || Math.abs(tmp.x) > 1.05 || Math.abs(tmp.y) > 1.05) { if (L.shown !== false) { L.el.style.display = 'none'; L.shown = false; } continue; }
       const x = (tmp.x * 0.5 + 0.5) * w, y = (-tmp.y * 0.5 + 0.5) * h + (L.offsetY || 0);
       if (L.shown !== true) { L.el.style.display = ''; L.shown = true; }
       L.el.style.left = `${x.toFixed(1)}px`;
@@ -561,6 +578,60 @@ export class UI {
       <li>Collateral damage costs approval. Better intel = more precise strikes.</li></ul>`);
   }
 
+  threatBoard() {
+    const g = this.g, w = g.world;
+    g.audio.click();
+    const bar = (v, col) => `<div class="bar" style="width:120px;display:inline-block;vertical-align:middle"><b style="width:${Math.max(0, Math.min(100, v))}%;background:${col}"></b></div>`;
+    let html = `<h2>THREAT BOARD</h2><p class="note">Known organizations and states. Click a known cell or country to plan an operation against it.</p><h3>ORGANIZATIONS</h3>`;
+    for (const f of w.factions) {
+      const alive = f.cells.filter(s => s.alive);
+      const known = alive.filter(s => w.visible(s));
+      html += `<div class="buy" style="grid-template-columns:24px 1fr auto"><div class="ic" style="color:${f.color}">☠</div>
+        <div><b style="color:${f.color}">${esc(f.name)}</b> <span class="note">${esc(f.kind)} · ${alive.length ? `${alive.length} active cell(s), ${known.length} located` : '<b style="color:var(--green)">DISMANTLED</b>'}</span>
+        <div style="margin-top:4px">${known.map(s => `<button data-cell="${s.id}" style="font-size:11px;margin:2px 4px 0 0">◉ ${esc(s.name.replace(f.name + ' ', ''))} · ${esc(w.countries[s.ci].name)}</button>`).join('')}
+        ${alive.length > known.length ? `<span class="note">${alive.length - known.length} unlocated — hosts: ${[...new Set(alive.filter(s => !w.visible(s)).map(s => w.countries[s.ci].name))].map(esc).join(', ')}</span>` : ''}</div></div>
+        <div>${bar(f.strength, f.color)}</div></div>`;
+    }
+    html += `<h3>HOSTILE STATES & RIVAL POWERS</h3>`;
+    const states = w.countries.filter(c => c.stance === 'hostile' || c.stance === 'rival').sort((a, b) => b.mil - a.mil);
+    for (const c of states) {
+      html += `<div class="buy" style="grid-template-columns:24px 1fr auto auto;cursor:pointer" data-country="${c.i}"><div class="ic">${c.stance === 'rival' ? '◆' : '▲'}</div>
+        <div><b>${esc(c.name)}</b> <span class="tag ${c.stance}">${STANCE_STYLE[c.stance].label}</span> <span class="note">military ${Math.round(c.mil)} · missiles ${c.missiles} · aggression ${Math.round(c.aggression)} · intel ${Math.round(c.intel)}</span></div>
+        <div>${bar(c.mil, 'var(--red)')}</div><button>PLAN</button></div>`;
+    }
+    this.modal(html);
+    $('modal-body').querySelectorAll('[data-cell]').forEach(b => b.addEventListener('click', () => {
+      const s = w.sites.find(x => x.id === +b.dataset.cell);
+      this.closeModal();
+      this.openDossier(w.countries[s.ci], { site: s, op: 'strike' });
+      g.focusLL(s.ll, 1.8);
+    }));
+    $('modal-body').querySelectorAll('[data-country]').forEach(b => b.addEventListener('click', () => {
+      const c = w.countries[+b.dataset.country];
+      this.closeModal();
+      this.openDossier(c);
+      g.focusLL(c.ll, 2.2);
+    }));
+  }
+
+  procureMenu() {
+    const g = this.g;
+    g.audio.click();
+    const rows = Object.entries(PROCURE).map(([type, p]) => {
+      const t = UNIT_TYPES[type];
+      const owned = g.units.filter(u => u.type === type && u.state !== 'lost').length;
+      const afford = g.sandbox || g.budget >= p.price;
+      return `<div class="buy"><div class="ic">${t.icon}</div>
+        <div><b>${t.name}</b> <span class="note">${esc(t.blurb)} · owned ${owned} · delivery ${g.sandbox ? Math.round(p.hours / 4) : p.hours}h</span></div>
+        <span class="price">${g.sandbox ? 'FREE' : '$' + p.price + 'B'}</span>
+        <button data-buy="${type}" ${afford ? '' : 'disabled'}>BUY</button></div>`;
+    }).join('');
+    this.modal(`<h2>PROCUREMENT</h2><p>Budget: <b>${g.sandbox ? 'unrestricted' : '$' + g.budget.toFixed(1) + 'B'}</b>. New forces are stationed at a suitable base when delivered.</p>${rows}`);
+    $('modal-body').querySelectorAll('[data-buy]').forEach(b => b.addEventListener('click', () => {
+      if (g.procure(b.dataset.buy)) { this.closeModal(); this.procureMenu(); }
+    }));
+  }
+
   menu() {
     const g = this.g;
     this.modal(`<h2>COMMAND MENU</h2><p>Day ${g.day} · Score ${Math.round(g.score)}</p>
@@ -597,6 +668,8 @@ export class UI {
     else if (e.key === '3') this.setSpeed(8);
     else if (e.key === 'h' || e.key === 'H') this.help();
     else if (e.key === 'm' || e.key === 'M') this.toast(g.audio.toggleMute() ? 'Audio muted' : 'Audio on');
+    else if (e.key === 't' || e.key === 'T') this.threatBoard();
+    else if (e.key === 'p' || e.key === 'P') this.procureMenu();
     else if (e.key === 'v' || e.key === 'V') this.toast(g.audio.toggleVoice() ? 'Voice callouts on' : 'Voice callouts off');
     else if (e.key === 'Tab') { e.preventDefault(); const cards = [...document.querySelectorAll('[data-crisis]')]; if (cards.length) { this._crisisIdx = ((this._crisisIdx ?? -1) + 1) % cards.length; cards[this._crisisIdx].click(); } }
     else if (e.key === 'Escape') { if (this.modalOpen) this.closeModal(); else if (this.selUnit) { this.selUnit = null; this.showHint(''); this.dirtyForces = true; } else if (this.dossier) this.closeDossier(); else this.menu(); }

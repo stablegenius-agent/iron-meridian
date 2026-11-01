@@ -6,6 +6,12 @@ import { GLOBE_R, distanceKm, llToVec3 } from './geo.js';
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const pct = (x) => Math.round(clamp(x, 0, 1) * 100);
 
+const CODE_A = ['IRON', 'CRIMSON', 'SILENT', 'BLACK', 'NORTHERN', 'BURNING', 'GLASS', 'THUNDER', 'COBALT', 'SHATTERED', 'MIDNIGHT', 'SOVEREIGN',
+  'ARCTIC', 'SCARLET', 'HOLLOW', 'TITAN', 'FALLING', 'SILVER', 'DESERT', 'OBSIDIAN', 'RESOLUTE', 'PHANTOM', 'GOLDEN', 'STEEL'];
+const CODE_B = ['TRIDENT', 'TEMPEST', 'ANVIL', 'SPEAR', 'LANTERN', 'HAMMER', 'VIGIL', 'SERPENT', 'FALCON', 'MERIDIAN', 'RAMPART', 'COMPASS',
+  'HARVEST', 'GAUNTLET', 'ECLIPSE', 'BASTION', 'NEEDLE', 'CROWN', 'HORIZON', 'FURY', 'MONSOON', 'SABRE', 'ORACLE', 'WARDEN'];
+function codename(rng) { return `${CODE_A[Math.floor(rng() * CODE_A.length)]} ${CODE_B[Math.floor(rng() * CODE_B.length)]}`; }
+
 /** Which ops make sense for a country (and why some don't). */
 export function availableOps(game, c) {
   const list = [];
@@ -57,7 +63,7 @@ export function estimate(game, opKey, c, site, units) {
   const intel = c.intel;
   const res = { success: 0, loss: 0, collateral: 0, tension: 0, cost: 0, notes: [] };
   if (!units.length) return res;
-  res.cost = game.sandbox ? 0 : units.reduce((a, u) => a + u.t.cost, 0) * (opKey === 'campaign' ? 3 : 1);
+  res.cost = game.sandbox ? 0 : units.reduce((a, u) => a + u.t.cost, 0) * 2.5 * (opKey === 'campaign' ? 3 : opKey === 'invade' ? 2 : 1);
 
   const ad = c.ad / 100, air = c.air / 100;
   const fighters = units.filter(u => u.type === 'fighter' || u.type === 'carrier').length;
@@ -147,7 +153,9 @@ export function execute(game, opKey, c, site, units) {
   game.log.ops++;
 
   const names = units.map(u => u.name).join(', ');
-  game.feed(`${op.name.toUpperCase()} → ${site ? site.name + ', ' : ''}${c.name}: ${names}`, 'info');
+  const code = op.esc >= 2 || opKey === 'aid' ? codename(game.rng) : null;
+  game.feed(`${code ? `OPERATION ${code} — ` : ''}${op.name.toUpperCase()} → ${site ? site.name + ', ' : ''}${c.name}: ${names}`, 'info');
+  if (code) game.ui.alert(`OPERATION ${code}`, `${op.name} · ${c.name}`, opKey === 'aid' ? 'good' : 'info');
 
   for (const u of units) {
     u.task = { op: opKey, ci: c.i, siteId: site?.id, opId, est };

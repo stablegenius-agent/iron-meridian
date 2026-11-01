@@ -38,7 +38,10 @@ export default async function (h) {
         }
         if (ok) handled.set(cr.id, g.time);
       }
-      // keep tension in check with aid when it runs hot
+      // spend spare budget on cheap, useful forces
+      if (g.budget > 70) { const pick = ['drone', 'destroyer', 'sof', 'fighter', 'satellite'][Math.floor(g.rng() * 5)]; g.procure(pick); if (g.ui.modalOpen) g.ui.closeModal(); }
+      // keep tension in check: diplomacy first, then aid
+      if (g.tension > 60 && g.time >= (g.talksReadyAt || 0)) g.talks(g.world.rivals[0]);
       if (g.tension > 65) {
         const n = g.world.countries.find(c => c.stance === 'neutral' && c.pop > 1e7 && g.rng() < 0.2);
         const a = free(['airborne'], n ? n.ll : [0,0])[0];

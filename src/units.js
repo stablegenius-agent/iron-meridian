@@ -179,6 +179,13 @@ export class Unit {
   update(gdt, dt, scale) {
     const g = this.game;
     if ((this.state === 'rearming' && g.time >= this.readyAt)) { this.state = 'ready'; g.ui.dirtyForces = true; }
+    if (this.state === 'delivering' && g.time >= this.readyAt) {
+      this.state = 'ready';
+      if (this.obj && this.cls === 'naval') this.obj.visible = true;
+      g.feed(`${this.t.name} ${this.callsign} delivered and ready at ${this.base.name}.`, 'good');
+      g.toast(`${this.t.short} ${this.callsign} READY`, 'good');
+      g.ui.dirtyForces = true;
+    }
     if (this.state === 'lost' && g.time >= this.readyAt) { this.revive(); g.feed(`${this.name} reconstituted and back in service.`, 'info'); g.ui.dirtyForces = true; }
 
     if (this.obj) this.obj.scale.setScalar(this.t.size * scale);
@@ -286,6 +293,7 @@ export class Unit {
       case 'returning': return 'RTB';
       case 'rearming': return `REARM ${Math.ceil(this.readyAt - g.time)}h`;
       case 'lost': return `LOST · ${Math.ceil(this.readyAt - g.time)}h`;
+      case 'delivering': return `DELIVERY ${Math.ceil(this.readyAt - g.time)}h`;
       default: return this.state.toUpperCase();
     }
   }

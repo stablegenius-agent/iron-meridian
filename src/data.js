@@ -153,7 +153,7 @@ export const CRISES = {
     hint: 'Patrol the ally with fighters, ships and battalions — or break the aggressor.' },
   disaster: { title: 'Humanitarian Disaster', hours: 80, reward: 60, penalty: { approval: -3, score: -20 },
     hint: 'Send an Airborne battalion with Humanitarian Aid.' },
-  rivalfleet: { title: 'Rival Fleet Incursion', hours: 70, reward: 50, penalty: { tension: 10, score: -30 },
+  rivalfleet: { title: 'Rival Fleet Incursion', hours: 70, reward: 50, penalty: { tension: 6, score: -30 },
     hint: 'Show of force: patrol the ally with a carrier or destroyers.' },
 };
 
@@ -164,6 +164,22 @@ export const STANCE_STYLE = {
   hostile: { fill: '#5a1820', border: 'rgba(255,110,120,0.8)', label: 'HOSTILE' },
   rival: { fill: '#5e2c10', border: 'rgba(255,160,90,0.85)', label: 'RIVAL POWER' },
   controlled: { fill: '#15503a', border: 'rgba(110,255,180,0.8)', label: 'US CONTROLLED' },
+};
+
+// Procurement: price ($B), delivery time (h), base kind it is stationed at, and callsign pool.
+export const PROCURE = {
+  fighter: { price: 22, hours: 36, at: 'air', names: ['WARHAWK', 'GHOST', 'LANCER', 'STINGER', 'HAVOC'] },
+  bomber: { price: 45, hours: 60, at: 'air', names: ['NIGHTHAWK', 'PHANTOM', 'WRAITH'] },
+  drone: { price: 6, hours: 18, at: 'air', names: ['REAPER-4', 'REAPER-5', 'REAPER-6', 'REAPER-7'] },
+  sof: { price: 12, hours: 30, at: 'army', names: ['GREEN BERETS', 'RANGERS', 'NIGHT STALKERS'] },
+  airborne: { price: 18, hours: 36, at: 'army', names: ['101ST', '11TH', '25TH'] },
+  armor: { price: 30, hours: 48, at: 'army', names: ['WARRIORS', 'DRAGONS', 'BULLDOGS'] },
+  carrier: { price: 90, hours: 96, at: 'naval', names: ['CVN-78', 'CVN-79', 'CVN-80'] },
+  destroyer: { price: 28, hours: 60, at: 'naval', names: ['DESRON-31', 'DESRON-2', 'DESRON-7'] },
+  submarine: { price: 32, hours: 72, at: 'naval', names: ['SSN-TOKYO', 'SSN-DELAWARE', 'SSN-IDAHO'] },
+  cyber: { price: 8, hours: 24, at: 'cyber', names: ['CMT-CHARLIE', 'CMT-DELTA', 'CMT-ECHO'] },
+  satellite: { price: 15, hours: 48, at: 'space', names: ['KEYHOLE-C', 'KEYHOLE-D', 'KEYHOLE-E'] },
+  orbital: { price: 120, hours: 120, at: 'space', names: ['ZEUS', 'ARES'] },
 };
 
 export const MEDALS = {
@@ -181,6 +197,6 @@ export const MEDALS = {
 };
 
 export const RANKS = [
-  [1400, 'S', 'Five-Star Legend'], [1000, 'A', 'Supreme Commander'], [650, 'B', 'Respected General'],
-  [350, 'C', 'Adequate Steward'], [0, 'D', 'Quietly Reassigned'], [-1e9, 'F', 'Court-Martialed'],
+  [4200, 'S', 'Five-Star Legend'], [3200, 'A', 'Supreme Commander'], [2200, 'B', 'Respected General'],
+  [1200, 'C', 'Adequate Steward'], [0, 'D', 'Quietly Reassigned'], [-1e9, 'F', 'Court-Martialed'],
 ];

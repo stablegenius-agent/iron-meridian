@@ -66,6 +66,13 @@ select { font: inherit; background: #07131d; color: var(--text); border: 1px sol
 .panel h2 { margin: 0; padding: 8px 12px; font: 700 12px var(--font); letter-spacing: .25em; color: var(--cyan); border-bottom: 1px solid var(--panel-line); display: flex; justify-content: space-between; }
 .scroll { overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--cyan-dim) transparent; }
 #forces { top: 66px; left: 12px; width: 300px; bottom: 214px; display: flex; flex-direction: column; }
+.procure { margin: 8px 10px 0; font: 700 11px var(--font); letter-spacing: .2em; color: var(--green); border-color: rgba(77, 255, 166, .4); background: rgba(77, 255, 166, .07); }
+.procure:hover { background: rgba(77, 255, 166, .18); border-color: var(--green); }
+.buy { display: grid; grid-template-columns: 30px 1fr auto auto; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--panel-line); margin-bottom: 6px; background: rgba(255, 255, 255, .02); }
+.buy .ic { font-size: 20px; text-align: center; }
+.buy b { font-size: 14px; }
+.buy .note { display: block; }
+.buy .price { font: 700 14px var(--mono); color: #fff; }
 .tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 10px 4px; }
 .tabs button { font-size: 11px; padding: 2px 7px; letter-spacing: .08em; }
 .tabs button.on { background: var(--cyan-dim); border-color: var(--cyan); }
@@ -179,4 +186,8 @@ select { font: inherit; background: #07131d; color: var(--text); border: 1px sol
 .kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 20px; font: 13px var(--mono); }
 .kv span:nth-child(even) { color: #fff; text-align: right; }
 
-@media (max-width: 1500px) { #forces { width: 260px; } #feed { width: 260px; } #crises { left: 284px; } .brand small { display: none; } }
+#topbar { gap: clamp(10px, 1.2vw, 22px); }
+.bar { width: clamp(50px, 5vw, 90px); }
+@media (max-width: 1900px) { .brand small { display: none; } }
+@media (max-width: 1650px) { .brand { font-size: 15px; letter-spacing: .14em; } #btn-threats .lbl-t { display: none; } }
+@media (max-width: 1500px) { #forces { width: 260px; } #feed { width: 260px; } #crises { left: 284px; } .stat label { letter-spacing: .08em; } }
